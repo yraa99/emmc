@@ -1,0 +1,121 @@
+from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTabWidget, QSplitter
+from PyQt6.QtCore import Qt, QTimer
+from gui.console import Console
+from gui.identify import IdentifyTab
+from gui.boot_extcsd import BootExtCSDTab
+from gui.userarea import UserAreaTab
+from gui.health import HealthTab
+from gui.special_task import SpecialTaskTab
+from gui.adb_fastboot import ADBFastbootTab
+from gui.isp_test import ISPTestTab
+
+
+class MainWindow(QMainWindow):
+    def __init__(self, emmc, serial):
+        super().__init__()
+        self.emmc = emmc
+        self.serial = serial
+        self.operation_timer = QTimer(self)
+        self.operation_timer.setSingleShot(True)
+        self.operation_timer.timeout.connect(self.operation_timeout)
+        self.setWindowTitle("eMMC Service Tool")
+        self.resize(1200, 750)
+        self.console = Console()
+        self.setupUI()
+        self.serial.set_disconnect_callback(self.on_serial_disconnect)
+        self.watchdog = QTimer(self)
+        self.watchdog.timeout.connect(self.check_connection)
+        self.watchdog.start(1000)
+
+    def setupUI(self):
+        main = QWidget()
+        self.setCentralWidget(main)
+        layout = QVBoxLayout(main)
+        self.tabs = QTabWidget()
+        self.identify = IdentifyTab(self.emmc, self.console)
+        self.boot = BootExtCSDTab(self.emmc, self.console)
+        self.userarea = UserAreaTab(self.emmc, self.console)
+        self.health = HealthTab(self.emmc, self.console)
+        self.special = SpecialTaskTab(self.emmc, self.console)
+        self.adb = ADBFastbootTab(self.console)
+        self.isp = ISPTestTab(self.emmc, self.console)
+        self.tabs.addTab(self.identify, "IDENTIFY")
+        self.tabs.addTab(self.boot, "BOOT / EXT_CSD")
+        self.tabs.addTab(self.userarea, "USER AREA")
+        self.tabs.addTab(self.health, "HEALTH")
+        self.tabs.addTab(self.special, "SPECIAL TASK")
+        self.tabs.addTab(self.adb, "ADB / FASTBOOT")
+        self.tabs.addTab(self.isp, "ISP TEST")
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(self.console)
+        splitter.addWidget(self.tabs)
+        splitter.setSizes([300, 700])
+        self.console.setMinimumWidth(250)
+        layout.addWidget(splitter)
+
+        bottom = QHBoxLayout()
+        self.rp_status = QLabel("RP2040 : DISCONNECTED")
+        self.btn_connect = QPushButton("CONNECT RP2040")
+        self.btn_cancel = QPushButton("CANCEL")
+        self.btn_cancel.setEnabled(False)
+        self.btn_connect.clicked.connect(self.connect_rp2040)
+        self.btn_cancel.clicked.connect(self.cancel_operation)
+        bottom.addWidget(self.rp_status)
+        bottom.addStretch()
+        bottom.addWidget(self.btn_cancel)
+        bottom.addWidget(self.btn_connect)
+        layout.addLayout(bottom)
+
+    def connect_rp2040(self):
+        self.console.log("Scanning RP2040...")
+        port = self.serial.auto_detect()
+        if not port:
+            self.set_disconnected("RP2040 not found")
+            return
+        if self.serial.connect(port):
+            self.rp_status.setText(f"RP2040 : CONNECTED ({port})")
+            self.console.log("RP2040 connected : " + port)
+            try:
+                self.emmc.init()
+            except Exception as e:
+                self.console.log(f"INIT ERROR: {e}")
+        else:
+            self.set_disconnected(f"Cannot open {port}")
+
+    def check_connection(self):
+        if self.serial.is_connected() and not self.serial.port_exists():
+            self.serial.disconnect()
+            return
+        if not self.serial.is_connected():
+            self.set_disconnected()
+
+    def on_serial_disconnect(self):
+        self.set_disconnected("RP2040 disconnected")
+
+    def set_disconnected(self, message=None):
+        self.rp_status.setText("RP2040 : DISCONNECTED")
+        self.btn_connect.setText("CONNECT RP2040")
+        if message:
+            self.console.log(message)
+        self.operation_timer.stop()
+        self.btn_cancel.setEnabled(False)
+        self.isp.finish()
+
+    def start_operation(self, timeout_ms=5000):
+        self.btn_cancel.setEnabled(True)
+        self.operation_timer.start(timeout_ms)
+
+    def operation_timeout(self):
+        self.console.log("OPERATION TIMEOUT - no response from RP2040")
+        self.btn_cancel.setEnabled(False)
+
+    def cancel_operation(self):
+        try:
+            self.emmc.stop_tests()
+            self.console.log("CANCEL REQUEST SENT")
+        except Exception as e:
+            self.console.log(f"CANCEL ERROR: {e}")
+        self.operation_timer.stop()
+        self.btn_cancel.setEnabled(False)
+        self.isp.finish()

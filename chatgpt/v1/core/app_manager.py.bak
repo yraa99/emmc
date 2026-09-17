@@ -1,0 +1,162 @@
+import os
+import tempfile
+
+from core.apk_parser import APKParser
+
+
+
+class AppManager:
+
+
+    def __init__(self, adb):
+
+        self.adb = adb
+        self.parser = APKParser()
+
+
+
+    def get_packages(self):
+
+        data = self.adb.shell(
+            "pm list packages"
+        )
+
+        result=[]
+
+        for x in data.splitlines():
+
+            if x.startswith("package:"):
+
+                result.append(
+                    x.replace(
+                        "package:",
+                        ""
+                    )
+                )
+
+        return result
+
+
+
+    def get_apk_path(self, package):
+
+        data=self.adb.shell(
+            f"pm path {package}"
+        )
+
+
+        for x in data.splitlines():
+
+            if "package:" in x:
+
+                return x.replace(
+                    "package:",
+                    ""
+                )
+
+        return None
+
+
+
+    def pull_apk(self, package):
+
+        remote=self.get_apk_path(
+            package
+        )
+
+
+        if not remote:
+
+            return None
+
+
+        local=os.path.join(
+            tempfile.gettempdir(),
+            package.replace(".","_")+".apk"
+        )
+
+
+        self.adb.run(
+            [
+                "pull",
+                remote,
+                local
+            ]
+        )
+
+
+        if os.path.exists(local):
+
+            return local
+
+
+        return None
+
+
+
+    def get_app_list(self):
+
+
+        result=[]
+
+
+        for package in self.get_packages():
+
+
+            apk=self.pull_apk(
+                package
+            )
+
+
+            data={
+
+                "package":package,
+
+                "status":
+                self.get_status(package),
+
+                "name":
+                package,
+
+                "icon":None,
+
+            }
+
+
+            if apk:
+
+
+                info=self.parser.parse(
+                    apk
+                )
+
+
+                if "error" not in info:
+
+                    data.update(info)
+
+
+
+            result.append(
+                data
+            )
+
+
+        return result
+
+
+
+    def get_status(self,package):
+
+
+        disabled=self.adb.shell(
+            f"pm list packages -d {package}"
+        )
+
+
+        if package in disabled:
+
+            return "DISABLED"
+
+
+        return "ENABLED"

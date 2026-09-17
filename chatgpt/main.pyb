@@ -1,0 +1,723 @@
+import sys
+import serial
+import serial.tools.list_ports
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QApplication,
+    QWidget,
+    QMainWindow,
+    QLabel,
+    QPushButton,
+    QTextEdit,
+    QComboBox,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QGroupBox,
+    QFrame,
+    QSplitter,
+    QProgressBar,
+)
+
+
+class EmmcTool(QMainWindow):
+
+    def __init__(self):
+        super().__init__()
+
+        self.serial = None
+        self.connected = False
+
+        self.setWindowTitle("RP2040 eMMC Programmer")
+        self.resize(1100, 700)
+
+        self.build_ui()
+        self.refresh_ports()
+
+    # ==========================================================
+    # UI
+    # ==========================================================
+
+    def build_ui(self):
+
+        central = QWidget()
+        self.setCentralWidget(central)
+
+        main_layout = QVBoxLayout(central)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(6)
+
+        # ------------------------------------------------------
+        # HEADER
+        # ------------------------------------------------------
+
+        header = QFrame()
+        header.setFrameShape(QFrame.Shape.StyledPanel)
+
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(10, 7, 10, 7)
+
+        title = QLabel("RP2040 eMMC PROGRAMMER")
+        title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+
+        subtitle = QLabel("eMMC Service Tool")
+        subtitle.setFont(QFont("Segoe UI", 9))
+
+        header_layout.addWidget(title)
+        header_layout.addSpacing(20)
+        header_layout.addWidget(subtitle)
+        header_layout.addStretch()
+
+        main_layout.addWidget(header)
+
+        # ------------------------------------------------------
+        # CONNECTION BAR
+        # ------------------------------------------------------
+
+        connection = QGroupBox("DEVICE CONNECTION")
+
+        connection_layout = QHBoxLayout(connection)
+
+        self.port_box = QComboBox()
+        self.port_box.setMinimumWidth(180)
+
+        self.refresh_button = QPushButton("REFRESH")
+        self.refresh_button.clicked.connect(self.refresh_ports)
+
+        self.connect_button = QPushButton("CONNECT")
+        self.connect_button.clicked.connect(self.toggle_connection)
+
+        self.connection_status = QLabel("● DISCONNECTED")
+        self.connection_status.setFont(
+            QFont("Segoe UI", 9, QFont.Weight.Bold)
+        )
+
+        connection_layout.addWidget(QLabel("PORT:"))
+        connection_layout.addWidget(self.port_box)
+        connection_layout.addWidget(self.refresh_button)
+        connection_layout.addWidget(self.connect_button)
+        connection_layout.addSpacing(20)
+        connection_layout.addWidget(self.connection_status)
+        connection_layout.addStretch()
+
+        main_layout.addWidget(connection)
+
+        # ------------------------------------------------------
+        # MAIN SPLITTER
+        # ------------------------------------------------------
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # ======================================================
+        # LEFT PANEL
+        # ======================================================
+
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+
+        # ------------------------------------------------------
+        # eMMC INFORMATION
+        # ------------------------------------------------------
+
+        info_box = QGroupBox("eMMC INFORMATION")
+
+        info_grid = QGridLayout(info_box)
+
+        self.status_value = QLabel("Not initialized")
+        self.cid_value = QLabel("-")
+        self.csd_value = QLabel("-")
+        self.ocr_value = QLabel("-")
+        self.rca_value = QLabel("-")
+        self.capacity_value = QLabel("-")
+
+        info_grid.addWidget(QLabel("STATUS"), 0, 0)
+        info_grid.addWidget(self.status_value, 0, 1)
+
+        info_grid.addWidget(QLabel("CID"), 1, 0)
+        info_grid.addWidget(self.cid_value, 1, 1)
+
+        info_grid.addWidget(QLabel("CSD"), 2, 0)
+        info_grid.addWidget(self.csd_value, 2, 1)
+
+        info_grid.addWidget(QLabel("OCR"), 3, 0)
+        info_grid.addWidget(self.ocr_value, 3, 1)
+
+        info_grid.addWidget(QLabel("RCA"), 4, 0)
+        info_grid.addWidget(self.rca_value, 4, 1)
+
+        info_grid.addWidget(QLabel("CAPACITY"), 5, 0)
+        info_grid.addWidget(self.capacity_value, 5, 1)
+
+        left_layout.addWidget(info_box)
+
+        # ------------------------------------------------------
+        # eMMC COMMANDS
+        # ------------------------------------------------------
+
+        command_box = QGroupBox("eMMC COMMANDS")
+
+        command_layout = QVBoxLayout(command_box)
+
+        self.init_button = QPushButton("INIT eMMC")
+        self.detect_button = QPushButton("DETECT")
+        self.identify_button = QPushButton("IDENTIFY")
+        self.cid_button = QPushButton("READ CID / CSD")
+
+        self.init_button.clicked.connect(
+            lambda: self.send_command("INIT")
+        )
+
+        self.detect_button.clicked.connect(
+            lambda: self.send_command("PINS")
+        )
+
+        self.identify_button.clicked.connect(
+            lambda: self.send_command("ID")
+        )
+
+        self.cid_button.clicked.connect(
+            lambda: self.send_command("ID")
+        )
+
+        command_layout.addWidget(self.init_button)
+        command_layout.addWidget(self.detect_button)
+        command_layout.addWidget(self.identify_button)
+        command_layout.addWidget(self.cid_button)
+
+        left_layout.addWidget(command_box)
+
+        # ------------------------------------------------------
+        # MEMORY
+        # ------------------------------------------------------
+
+        memory_box = QGroupBox("MEMORY")
+
+        memory_layout = QVBoxLayout(memory_box)
+
+        self.read_button = QPushButton("READ / DUMP")
+        self.scan_button = QPushButton("SCAN")
+        self.find_button = QPushButton("FIND DATA")
+        self.stop_button = QPushButton("STOP")
+
+        self.read_button.clicked.connect(
+            lambda: self.send_command("READ")
+        )
+
+        self.scan_button.clicked.connect(
+            lambda: self.send_command("SCAN")
+        )
+
+        self.find_button.clicked.connect(
+            lambda: self.send_command("FIND")
+        )
+
+        self.stop_button.clicked.connect(
+            lambda: self.send_command("STOP")
+        )
+
+        memory_layout.addWidget(self.read_button)
+        memory_layout.addWidget(self.scan_button)
+        memory_layout.addWidget(self.find_button)
+        memory_layout.addWidget(self.stop_button)
+
+        left_layout.addWidget(memory_box)
+
+        left_layout.addStretch()
+
+        splitter.addWidget(left_panel)
+
+        # ======================================================
+        # RIGHT PANEL
+        # ======================================================
+
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+
+        # ------------------------------------------------------
+        # LOG
+        # ------------------------------------------------------
+
+        log_box = QGroupBox("CONSOLE / LOG")
+
+        log_layout = QVBoxLayout(log_box)
+
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+
+        self.log.setFont(
+            QFont("Consolas", 9)
+        )
+
+        log_layout.addWidget(self.log)
+
+        right_layout.addWidget(log_box)
+
+        # ------------------------------------------------------
+        # PROGRESS
+        # ------------------------------------------------------
+
+        progress_box = QGroupBox("OPERATION")
+
+        progress_layout = QVBoxLayout(progress_box)
+
+        self.operation_label = QLabel(
+            "Ready"
+        )
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+
+        progress_layout.addWidget(
+            self.operation_label
+        )
+
+        progress_layout.addWidget(
+            self.progress
+        )
+
+        right_layout.addWidget(progress_box)
+
+        splitter.addWidget(right_panel)
+
+        splitter.setSizes([350, 700])
+
+        main_layout.addWidget(splitter)
+
+        # ------------------------------------------------------
+        # FOOTER
+        # ------------------------------------------------------
+
+        footer = QFrame()
+
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(5, 3, 5, 3)
+
+        self.footer_status = QLabel(
+            "Ready"
+        )
+
+        footer_layout.addWidget(
+            self.footer_status
+        )
+
+        footer_layout.addStretch()
+
+        footer_layout.addWidget(
+            QLabel("RP2040 • eMMC")
+        )
+
+        main_layout.addWidget(footer)
+
+        # ------------------------------------------------------
+        # STYLE
+        # ------------------------------------------------------
+
+        self.apply_style()
+
+        self.log_message(
+            "RP2040 eMMC Programmer started."
+        )
+
+        self.log_message(
+            "Waiting for RP2040 device..."
+        )
+
+    # ==========================================================
+    # STYLE
+    # ==========================================================
+
+    def apply_style(self):
+
+        self.setStyleSheet("""
+            QMainWindow {
+                background: #202225;
+            }
+
+            QWidget {
+                color: #eeeeee;
+                font-family: "Segoe UI";
+                font-size: 9pt;
+            }
+
+            QGroupBox {
+                border: 1px solid #44474c;
+                border-radius: 3px;
+                margin-top: 10px;
+                padding-top: 8px;
+                background: #282a2e;
+                font-weight: bold;
+            }
+
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+                color: #cccccc;
+            }
+
+            QPushButton {
+                background: #34373c;
+                border: 1px solid #50545a;
+                border-radius: 3px;
+                padding: 7px 12px;
+                min-height: 18px;
+            }
+
+            QPushButton:hover {
+                background: #40444a;
+            }
+
+            QPushButton:pressed {
+                background: #25272a;
+            }
+
+            QComboBox {
+                background: #303238;
+                border: 1px solid #50545a;
+                padding: 6px;
+            }
+
+            QTextEdit {
+                background: #151619;
+                border: 1px solid #3e4146;
+                color: #dddddd;
+            }
+
+            QProgressBar {
+                background: #151619;
+                border: 1px solid #44474c;
+                height: 18px;
+                text-align: center;
+            }
+
+            QProgressBar::chunk {
+                background: #777777;
+            }
+
+            QLabel {
+                color: #dddddd;
+            }
+        """)
+
+    # ==========================================================
+    # SERIAL
+    # ==========================================================
+
+    def refresh_ports(self):
+
+        self.port_box.clear()
+
+        ports = serial.tools.list_ports.comports()
+
+        for port in ports:
+
+            self.port_box.addItem(
+                f"{port.device} - {port.description}",
+                port.device
+            )
+
+        if not ports:
+
+            self.port_box.addItem(
+                "No COM port detected",
+                ""
+            )
+
+    # ==========================================================
+
+    def toggle_connection(self):
+
+        if self.connected:
+
+            self.disconnect_device()
+
+        else:
+
+            self.connect_device()
+
+    # ==========================================================
+
+    def connect_device(self):
+
+        if self.port_box.currentData():
+
+            port = self.port_box.currentData()
+
+        else:
+
+            text = self.port_box.currentText()
+
+            if text.startswith("COM"):
+
+                port = text.split(" ")[0]
+
+            else:
+
+                self.log_message(
+                    "ERROR: No COM port selected."
+                )
+
+                return
+
+        try:
+
+            self.serial = serial.Serial(
+                port=port,
+                baudrate=115200,
+                timeout=0.1
+            )
+
+            self.connected = True
+
+            self.connect_button.setText(
+                "DISCONNECT"
+            )
+
+            self.connection_status.setText(
+                "● CONNECTED"
+            )
+
+            self.footer_status.setText(
+                f"Connected: {port}"
+            )
+
+            self.log_message(
+                f"Connected to {port}"
+            )
+
+        except Exception as e:
+
+            self.serial = None
+            self.connected = False
+
+            self.log_message(
+                f"ERROR: {e}"
+            )
+
+    # ==========================================================
+
+    def disconnect_device(self):
+
+        try:
+
+            if self.serial:
+
+                self.serial.close()
+
+        except Exception:
+            pass
+
+        self.serial = None
+        self.connected = False
+
+        self.connect_button.setText(
+            "CONNECT"
+        )
+
+        self.connection_status.setText(
+            "● DISCONNECTED"
+        )
+
+        self.footer_status.setText(
+            "Disconnected"
+        )
+
+        self.log_message(
+            "Device disconnected."
+        )
+
+    # ==========================================================
+    # COMMAND
+    # ==========================================================
+
+    def send_command(self, command):
+
+        if not self.connected or not self.serial:
+
+            self.log_message(
+                "ERROR: RP2040 is not connected."
+            )
+
+            return
+
+        try:
+
+            packet = (
+                command + "\n"
+            ).encode("utf-8")
+
+            self.serial.write(packet)
+
+            self.log_message(
+                "> " + command
+            )
+
+            self.operation_label.setText(
+                f"Executing: {command}"
+            )
+
+            self.read_serial()
+
+        except Exception as e:
+
+            self.log_message(
+                f"TX ERROR: {e}"
+            )
+
+    # ==========================================================
+    # RECEIVE
+    # ==========================================================
+
+    def read_serial(self):
+
+        if not self.serial:
+            return
+
+        try:
+
+            data = self.serial.read(
+                self.serial.in_waiting or 1
+            )
+
+            if not data:
+                return
+
+            text = data.decode(
+                "utf-8",
+                errors="replace"
+            )
+
+            for line in text.splitlines():
+
+                if line.strip():
+
+                    self.log_message(
+                        "< " + line
+                    )
+
+                    self.parse_response(
+                        line
+                    )
+
+        except Exception as e:
+
+            self.log_message(
+                f"RX ERROR: {e}"
+            )
+
+    # ==========================================================
+    # RESPONSE PARSER
+    # ==========================================================
+
+    def parse_response(self, line):
+
+        if "OK INIT" in line:
+
+            self.status_value.setText(
+                "Initialized"
+            )
+
+            self.operation_label.setText(
+                "eMMC initialization completed"
+            )
+
+            self.progress.setValue(
+                100
+            )
+
+        elif "CID=" in line:
+
+            value = line.split(
+                "CID=",
+                1
+            )[1]
+
+            self.cid_value.setText(
+                value
+            )
+
+        elif "CSD=" in line:
+
+            value = line.split(
+                "CSD=",
+                1
+            )[1]
+
+            self.csd_value.setText(
+                value
+            )
+
+        elif "OCR=" in line:
+
+            value = line.split(
+                "OCR=",
+                1
+            )[1]
+
+            self.ocr_value.setText(
+                value
+            )
+
+        elif "RCA=" in line:
+
+            value = line.split(
+                "RCA=",
+                1
+            )[1]
+
+            self.rca_value.setText(
+                value
+            )
+
+        elif "CAPACITY=" in line:
+
+            value = line.split(
+                "CAPACITY=",
+                1
+            )[1]
+
+            self.capacity_value.setText(
+                value
+            )
+
+        elif "ERROR" in line:
+
+            self.status_value.setText(
+                "Error"
+            )
+
+            self.operation_label.setText(
+                line
+            )
+
+    # ==========================================================
+    # LOG
+    # ==========================================================
+
+    def log_message(self, text):
+
+        self.log.append(
+            text
+        )
+
+
+# ==============================================================
+# MAIN
+# ==============================================================
+
+if __name__ == "__main__":
+
+    app = QApplication(sys.argv)
+
+    window = EmmcTool()
+
+    window.show()
+
+    sys.exit(
+        app.exec()
+    )

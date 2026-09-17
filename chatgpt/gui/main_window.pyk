@@ -1,0 +1,317 @@
+from PyQt6.QtWidgets import *
+from PyQt6.QtCore import Qt
+
+
+from gui.console import Console
+from gui.identify import IdentifyTab
+from gui.boot_extcsd import BootExtCSDTab
+from gui.userarea import UserAreaTab
+from gui.health import HealthTab
+from gui.special_task import SpecialTaskTab
+from gui.adb_fastboot import ADBFastbootTab
+
+
+
+class MainWindow(QMainWindow):
+
+
+    def __init__(self, emmc, serial):
+
+        super().__init__()
+
+
+        self.emmc = emmc
+        self.serial = serial
+
+
+        self.setWindowTitle(
+            "eMMC Service Tool"
+        )
+
+
+        self.resize(
+            1200,
+            750
+        )
+
+
+        self.console = Console()
+
+
+        self.setupUI()
+
+
+
+    def setupUI(self):
+
+
+        main = QWidget()
+
+        self.setCentralWidget(
+            main
+        )
+
+
+        layout = QHBoxLayout(main)
+
+
+
+        # =================
+        # LEFT MENU
+        # =================
+
+
+        menu = QVBoxLayout()
+
+
+        title = QLabel(
+            "eMMC SERVICE"
+        )
+
+
+        title.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
+
+
+
+        self.btnIdentify = QPushButton(
+            "IDENTIFY"
+        )
+
+
+        self.btnBoot = QPushButton(
+            "BOOT / EXT_CSD"
+        )
+
+
+        self.btnUser = QPushButton(
+            "USER AREA"
+        )
+
+
+        self.btnHealth = QPushButton(
+            "HEALTH"
+        )
+
+
+        self.btnSpecial = QPushButton(
+            "SPECIAL TASK"
+        )
+
+
+        self.btnADB = QPushButton(
+            "ADB / FASTBOOT"
+        )
+
+
+        self.btnConsole = QPushButton(
+            "CONSOLE"
+        )
+
+
+
+        menu.addWidget(
+            title
+        )
+
+
+        menu.addWidget(
+            self.btnIdentify
+        )
+
+
+        menu.addWidget(
+            self.btnBoot
+        )
+
+
+        menu.addWidget(
+            self.btnUser
+        )
+
+
+        menu.addWidget(
+            self.btnHealth
+        )
+
+
+        menu.addWidget(
+            self.btnSpecial
+        )
+
+
+        menu.addWidget(
+            self.btnADB
+        )
+
+
+        menu.addWidget(
+            self.btnConsole
+        )
+
+
+        menu.addStretch()
+
+
+
+        # =================
+        # PAGE
+        # =================
+
+
+        self.pages = QStackedWidget()
+
+
+
+        self.identify = IdentifyTab(
+            self.emmc,
+            self.console
+        )
+
+
+        self.boot = BootExtCSDTab(
+            self.emmc,
+            self.console
+        )
+
+
+        self.userarea = UserAreaTab(
+            self.emmc,
+            self.console
+        )
+
+
+        self.health = HealthTab(
+            self.emmc,
+            self.console
+        )
+
+
+        self.special = SpecialTaskTab(
+            self.emmc,
+            self.console
+        )
+
+
+        self.adb = ADBFastbootTab(
+            self.console
+        )
+
+
+
+        self.pages.addWidget(
+            self.identify
+        )
+
+
+        self.pages.addWidget(
+            self.boot
+        )
+
+
+        self.pages.addWidget(
+            self.userarea
+        )
+
+
+        self.pages.addWidget(
+            self.health
+        )
+
+
+        self.pages.addWidget(
+            self.special
+        )
+
+
+        self.pages.addWidget(
+            self.adb
+        )
+
+
+        self.pages.addWidget(
+            self.console
+        )
+
+
+
+        # =================
+        # BUTTON CONNECT
+        # =================
+
+
+
+        self.btnIdentify.clicked.connect(
+            lambda:
+            self.pages.setCurrentWidget(
+                self.identify
+            )
+        )
+
+
+
+        self.btnBoot.clicked.connect(
+            lambda:
+            self.pages.setCurrentWidget(
+                self.boot
+            )
+        )
+
+
+
+        self.btnUser.clicked.connect(
+            lambda:
+            self.pages.setCurrentWidget(
+                self.userarea
+            )
+        )
+
+
+
+        self.btnHealth.clicked.connect(
+            lambda:
+            self.pages.setCurrentWidget(
+                self.health
+            )
+        )
+
+
+
+        self.btnSpecial.clicked.connect(
+            lambda:
+            self.pages.setCurrentWidget(
+                self.special
+            )
+        )
+
+
+
+        self.btnADB.clicked.connect(
+            lambda:
+            self.pages.setCurrentWidget(
+                self.adb
+            )
+        )
+
+
+
+        self.btnConsole.clicked.connect(
+            lambda:
+            self.pages.setCurrentWidget(
+                self.console
+            )
+        )
+
+
+
+        layout.addLayout(
+            menu,
+            1
+        )
+
+
+        layout.addWidget(
+            self.pages,
+            5
+        )
