@@ -394,11 +394,11 @@ static inline void emmc_cmd_set_input(void) {
 }
 
 static inline void emmc_clock_bit_out(uint8_t bit) {
-  // SD/eMMC samples command/data on CLK rising edge; update CMD during low phase
-  // (after falling edge) to maximize setup/hold margin on analyzers and targets.
-    //emmc_delay_half();
-  emmc_cmd_set_output(bit ? true : false);
+  // eMMC samples CMD on the rising edge. Change CMD only while CLK is low,
+  // then provide a full setup interval before the rising edge.
   gpio_put(EMMC_CLK_PIN, 0u);
+  emmc_delay_half();
+  emmc_cmd_set_output(bit ? true : false);
   emmc_delay_half();
   gpio_put(EMMC_CLK_PIN, 1u);
   emmc_delay_half();
@@ -406,23 +406,23 @@ static inline void emmc_clock_bit_out(uint8_t bit) {
 
 static inline uint8_t emmc_clock_bit_in_cmd(void) {
   uint8_t bit;
-  bit = (uint8_t)gpio_get(EMMC_CMD_PIN);
+  // Sample the response after the rising edge so the card has had a full
+  // low-to-high transition to present the next response bit.
   gpio_put(EMMC_CLK_PIN, 0u);
   emmc_delay_half();
   gpio_put(EMMC_CLK_PIN, 1u);
+  bit = (uint8_t)gpio_get(EMMC_CMD_PIN);
   emmc_delay_half();
-  //bit = (uint8_t)gpio_get(EMMC_CMD_PIN);
   return bit;
 }
 
 static inline uint8_t emmc_clock_bit_in_dat0(void) {
   uint8_t bit;
-  bit = (uint8_t)gpio_get(EMMC_DAT0_PIN);
   gpio_put(EMMC_CLK_PIN, 0u);
   emmc_delay_half();
   gpio_put(EMMC_CLK_PIN, 1u);
+  bit = (uint8_t)gpio_get(EMMC_DAT0_PIN);
   emmc_delay_half();
-  //bit = (uint8_t)gpio_get(EMMC_DAT0_PIN);
   return bit;
 }
 
@@ -490,6 +490,16 @@ static uint16_t crc16_ccitt_bytes(const uint8_t *data, size_t len) {
     }
   }
   return crc;
+}
+
+static bool emmc_validate_r3(const uint8_t *r3) {
+  if (!r3) return false;
+  if (bitbuf_get(r3, 0u) != 0u) return false;
+  if (bitbuf_get(r3, 1u) != 0u) return false;
+  if (bitbuf_get_u32(r3, 2u, 6u) != 1u) return false;
+  if (bitbuf_get_u32(r3, 40u, 7u) != 0x7Fu) return false;
+  if (bitbuf_get(r3, 47u) != 1u) return false;
+  return true;
 }
 
 static bool emmc_read_response_bits(uint16_t total_bits, uint8_t *out, size_t out_size) {
@@ -646,6 +656,16 @@ static bool emmc_try_read_ids(emmc_id_data_t *out) {
         emmc_diag_stage(stage);
       }
       if (emmc_send_cmd_raw(1u, cmd1_args[arg_i], 48u, r1, sizeof(r1))) {
+        if (!emmc_validate_r3(r1)) {
+          char msg[128];
+          snprintf(msg, sizeof(msg), "CMD1 invalid R3: CMDIDX=%lu OCR=%08lX",
+                   (unsigned long)bitbuf_get_u32(r1, 2u, 6u),
+                   (unsigned long)bitbuf_get_u32(r1, 8u, 32u));
+          emmc_dbg(2, msg);
+          emmc_send_retry_idle();
+          sleep_ms(EMMC_CMD1_RETRY_DELAY_MS);
+          continue;
+        }
         emmc_diag_stage("CMD1_RESPONSE");
         saw_cmd1_response = true;
         ocr = bitbuf_get_u32(r1, 8u, 32u);
