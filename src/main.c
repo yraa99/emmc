@@ -297,6 +297,9 @@ static void process_command(char *cmd) {
     if (strlen(cmd) == 0) return;
 
     if (strcmp(cmd, "INIT") == 0) {
+        // If the diagnostic PWM monitor was running, release GPIO8 before
+        // handing GPIO7/8/9 back to the eMMC bit-bang driver.
+        signal_monitor_stop();
         app_debug_log(1, "EMMC", "Initializing eMMC Hardware...");
         proto_emmc_init();
         app_send_text("OK INIT\n");
@@ -406,16 +409,18 @@ static void process_command(char *cmd) {
     }
 
     if (strcmp(cmd, "VERSION") == 0 || strcmp(cmd, "FW_VERSION") == 0) {
-        app_send_text("{\"type\":\"firmware.info\",\"name\":\"eMMC Service Tool\",\"version\":\"REAL_GPT_CMDTEST_CLKTEST\",\"build\":\"2026-09-10\"}\n");
+        app_send_text("{\"type\":\"firmware.info\",\"name\":\"eMMC Service Tool\",\"version\":\"IDENTIFY_CMD1_1V8_DEBUG\",\"build\":\"2026-09-18\"}\n");
         return;
     }
 
     if (strcmp(cmd, "IDENTIFY") == 0) {
+        signal_monitor_stop();
         proto_emmc_handle_text("emmc.identify", "{\"type\":\"emmc.identify\"}");
         return;
     }
 
     if (strncmp(cmd, "CMD_TEST", 8) == 0 && (cmd[8] == 0 || cmd[8] == ' ')) {
+        signal_monitor_stop();
         unsigned cycles = 6;
         (void)sscanf(cmd + 8, "%u", &cycles);
         char json[96];
@@ -425,6 +430,7 @@ static void process_command(char *cmd) {
     }
 
     if (strncmp(cmd, "CMD1_TEST", 9) == 0 && (cmd[9] == 0 || cmd[9] == ' ')) {
+        signal_monitor_stop();
         unsigned retries = 16, arg = 0x40FF8000u;
         (void)sscanf(cmd + 9, "%u %u", &retries, &arg);
         char json[128];
@@ -434,6 +440,7 @@ static void process_command(char *cmd) {
     }
 
     if (strncmp(cmd, "SD_TEST", 7) == 0 && (cmd[7] == 0 || cmd[7] == ' ')) {
+        signal_monitor_stop();
         unsigned retries = 24, arg = 0x40FF8000u;
         (void)sscanf(cmd + 7, "%u %u", &retries, &arg);
         char json[128];
@@ -443,6 +450,7 @@ static void process_command(char *cmd) {
     }
 
     if (strncmp(cmd, "CLK_TEST", 8) == 0 && (cmd[8] == 0 || cmd[8] == ' ')) {
+        signal_monitor_stop();
         unsigned frequency_hz = 400000u;
         unsigned duration_ms = 1000u;
         (void)sscanf(cmd + 8, "%u %u", &frequency_hz, &duration_ms);
