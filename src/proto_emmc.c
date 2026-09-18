@@ -291,6 +291,7 @@ static bool json_extract_bool(const char *json, const char *key, bool *out) {
 static volatile bool g_led_busy = false;
 static volatile bool g_led_state = true;
 static repeating_timer_t g_led_timer;
+static bool g_led_timer_initialized = false;
 
 static bool status_led_timer_cb(repeating_timer_t *timer) {
   (void)timer;
@@ -310,8 +311,11 @@ static void status_led_init(void) {
   g_led_state = true;
   g_led_busy = false;
   gpio_put(PICO_DEFAULT_LED_PIN, 1u);
-  // Hardware timer keeps blinking even while the eMMC IDENTIFY routine is blocking.
-  add_repeating_timer_ms(-100, status_led_timer_cb, NULL, &g_led_timer);
+  // Install the timer only once; INIT can be called repeatedly from the GUI.
+  if (!g_led_timer_initialized) {
+    add_repeating_timer_ms(-100, status_led_timer_cb, NULL, &g_led_timer);
+    g_led_timer_initialized = true;
+  }
 }
 
 static void status_led_set_busy(bool busy) {
