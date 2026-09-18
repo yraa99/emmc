@@ -567,8 +567,8 @@ typedef struct {
   bool ok;
   uint32_t ocr;
   uint16_t rca;
-  uint8_t cid[15];
-  uint8_t csd[15];
+  uint8_t cid[16];
+  uint8_t csd[16];
   char msg[96];
 } emmc_id_data_t;
 
@@ -584,11 +584,15 @@ static void hex_bytes(const uint8_t *buf, size_t len, char *out, size_t out_len)
   out[p] = 0;
 }
 
-static void r2_extract_payload_120(const uint8_t *r2_136, uint8_t out15[15]) {
+static void r2_extract_payload_128(const uint8_t *r2_136, uint8_t out16[16]) {
   uint16_t i;
-  memset(out15, 0, 15);
-  for (i = 0; i < 120u; i++) {
-    bitbuf_set(out15, i, bitbuf_get(r2_136, (uint16_t)(2u + i)));
+  // R2 is 136 bits:
+  // [135:8] 128-bit CID/CSD payload
+  // [7:2] command index, [1] transmission, [0] start/footer layout as defined
+  // by the bitstream reader. The payload begins at bit 8 in our MSB-first buffer.
+  memset(out16, 0, 16);
+  for (i = 0; i < 128u; i++) {
+    bitbuf_set(out16, i, bitbuf_get(r2_136, (uint16_t)(8u + i)));
   }
 }
 
@@ -706,7 +710,7 @@ static bool emmc_try_read_ids(emmc_id_data_t *out) {
     EMMC_RESTORE_TIMING();
     return false;
   }
-  r2_extract_payload_120(r2, out->cid);
+  r2_extract_payload_128(r2, out->cid);
   emmc_send_retry_idle();
 
   for (cmdx_try = 0; cmdx_try < EMMC_CMDX_RETRIES; cmdx_try++) {
@@ -734,7 +738,7 @@ static bool emmc_try_read_ids(emmc_id_data_t *out) {
     EMMC_RESTORE_TIMING();
     return false;
   }
-  r2_extract_payload_120(r2, out->csd);
+  r2_extract_payload_128(r2, out->csd);
 
   out->rca = rca;
   out->ok = true;
@@ -1707,8 +1711,8 @@ static void emmc_identify_once(void) {
   emmc_id_data_t id;
   status_led_set_busy(true);
   char out[768];
-  char cid_hex[31];
-  char csd_hex[31];
+  char cid_hex[33];
+  char csd_hex[33];
   if (emmc_try_read_ids(&id)) {
     hex_bytes(id.cid, sizeof(id.cid), cid_hex, sizeof(cid_hex));
     hex_bytes(id.csd, sizeof(id.csd), csd_hex, sizeof(csd_hex));
