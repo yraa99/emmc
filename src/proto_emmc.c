@@ -334,6 +334,9 @@ static void pin_input(uint pin) {
 }
 
 static void pin_output(uint pin, bool value) {
+  // Explicitly return the pad to SIO. This matters after SIGNAL_MONITOR,
+  // because GPIO8 may previously have been owned by PWM.
+  gpio_set_function(pin, GPIO_FUNC_SIO);
   gpio_init(pin);
   // Preload output latch before driving the pin to avoid enable-edge glitches.
   gpio_put(pin, value ? 1u : 0u);
@@ -348,6 +351,8 @@ static void emmc_apply_safe_io(void) {
 }
 
 static void emmc_bus_prepare(void) {
+  // GPIO8 is the clock and must be a normal SIO output after any PWM test.
+  gpio_set_function(EMMC_CLK_PIN, GPIO_FUNC_SIO);
   pin_output(EMMC_CLK_PIN, true);
   pin_input(EMMC_CMD_PIN);
   g_emmc.cmd_output = false;
@@ -1728,7 +1733,9 @@ static void emmc_identify_once(void) {
              "{\"type\":\"emmc.identify.result\",\"ok\":false,\"msg\":\"%s\"}",
              id.msg[0] ? id.msg : "ID read failed");
   }
-  (void)app_send_text(out);
+  bool sent = app_send_text(out);
+  emmc_dbg(1, sent ? "IDENTIFY_RESULT_SENT" : "IDENTIFY_RESULT_SEND_FAILED");
+  tud_task();
   status_led_set_busy(false);
   if (g_emmc.tristate_default) emmc_apply_safe_io();
 }
