@@ -119,6 +119,25 @@ class FactoryImageTab(QWidget):
             return "BIN/IMG"
         return "UNKNOWN"
 
+    def detect_soc(self, path):
+        try:
+            with open(path, "rb") as f:
+                sample = f.read(1024 * 1024)
+            text = sample.decode("latin-1", errors="ignore").lower()
+        except OSError:
+            return "UNKNOWN"
+        checks = (
+            ("QUALCOMM / MSM / SNAPDRAGON", ("qualcomm", "snapdragon", "msm", "qcom")),
+            ("MEDIATEK / MTK", ("mediatek", "mtk", "mt65", "mt67", "mt68")),
+            ("UNISOC / SPREADTRUM", ("unisoc", "spreadtrum", "sc986", "sc773")),
+            ("HISILICON / HUAWEI", ("hisilicon", "kirin", "hisi")),
+            ("SAMSUNG / EXYNOS", ("exynos", "samsung")),
+        )
+        for label, tokens in checks:
+            if any(token in text for token in tokens):
+                return label
+        return "UNKNOWN"
+
     def inspect_file(self):
         path = self.selected_path or self.path_edit.text().strip()
         if not path:
@@ -136,9 +155,11 @@ class FactoryImageTab(QWidget):
             return
 
         self.info.setRowCount(0)
+        soc = self.detect_soc(path)
         rows = [
             ("File", os.path.basename(path), str(size), "READY"),
             ("Format", fmt, "-", "DETECTED"),
+            ("SoC", soc, "-", "DETECTED" if soc != "UNKNOWN" else "NOT DETECTED"),
             ("Path", os.path.dirname(path), "-", "SELECTED"),
         ]
         for values in rows:
@@ -147,7 +168,7 @@ class FactoryImageTab(QWidget):
             for col, value in enumerate(values):
                 self.info.setItem(row, col, QTableWidgetItem(str(value)))
 
-        self.log(f"FACTORY IMAGE: {fmt} selected - {os.path.basename(path)}")
+        self.log(f"FACTORY IMAGE: {fmt} / {soc} - {os.path.basename(path)}")
         self.log("FACTORY IMAGE: inspection ready; flashing remains disabled until a write backend is implemented")
 
     def clear_image(self):
