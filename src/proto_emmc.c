@@ -1679,6 +1679,13 @@ bool emmc_read_block(uint32_t lba, bool hc_addressing, uint8_t out[EMMC_DUMP_BLO
             g_emmc.dump_hc_addressing = new_hc;
             rca = new_rca;
             local_hc = new_hc;
+            if (g_emmc.dump_partition != 0u) {
+              char part_msg[96];
+              if (!emmc_switch_partition(new_rca, g_emmc.dump_partition, part_msg, sizeof(part_msg))) {
+                emmc_set_data_err("partition reselect failed");
+                if (app_debug_level() >= 1u) emmc_dbg(1, "cmd: partition reselect failed after re-prepare");
+              }
+            }
             cmd_no_r1_count = 0u;
             if (app_debug_level() >= 1u) emmc_dbg(1, "cmd: full re-prepare after repeated no-R1");
           } else if (app_debug_level() >= 1u) {
