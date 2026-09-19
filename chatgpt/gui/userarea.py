@@ -42,7 +42,24 @@ class UserAreaTab(QWidget):
         self._buildprop_data = []
         self.setup()
 
-    def hide_main_chrome(self):\n        """Hide controls when the live partition table is embedded in MAIN."""\n        for widget in (getattr(self, "title", None), getattr(self, "status", None), getattr(self, "actions_widget", None)):\n            if widget is not None:\n                widget.hide()\n        for button in (getattr(self, "scan", None), getattr(self, "read", None), getattr(self, "write", None), getattr(self, "stop", None)):\n            if button is not None:\n                button.hide()\n\n    def show_service_controls(self):\n        for widget in (getattr(self, "title", None), getattr(self, "status", None), getattr(self, "actions_widget", None)):\n            if widget is not None:\n                widget.show()\n        for button in (getattr(self, "scan", None), getattr(self, "read", None), getattr(self, "write", None), getattr(self, "stop", None)):\n            if button is not None:\n                button.show()\n\n    def setup(self):
+    def hide_main_chrome(self):
+        """Hide controls when the live partition table is embedded in MAIN."""
+        for widget in (getattr(self, "title", None), getattr(self, "status", None), getattr(self, "actions_widget", None)):
+            if widget is not None:
+                widget.hide()
+        for button in (getattr(self, "scan", None), getattr(self, "read", None), getattr(self, "write", None), getattr(self, "stop", None)):
+            if button is not None:
+                button.hide()
+
+    def show_service_controls(self):
+        for widget in (getattr(self, "title", None), getattr(self, "status", None), getattr(self, "actions_widget", None)):
+            if widget is not None:
+                widget.show()
+        for button in (getattr(self, "scan", None), getattr(self, "read", None), getattr(self, "write", None), getattr(self, "stop", None)):
+            if button is not None:
+                button.show()
+
+    def setup(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -68,7 +85,9 @@ class UserAreaTab(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table, 1)
 
-        actions = QHBoxLayout()\n        self.actions_widget = QWidget()\n        self.actions_widget.setLayout(actions)
+        actions = QHBoxLayout()
+        self.actions_widget = QWidget()
+        self.actions_widget.setLayout(actions)
         actions.setSpacing(8)
         self.scan = QPushButton("READ GPT")
         self.read = QPushButton("READ / BACKUP")
@@ -149,7 +168,8 @@ class UserAreaTab(QWidget):
             size_text = f"{size / 1024**2:.2f} MB"
         else:
             size_text = f"{size / 1024:.2f} KB"
-        location = "SUPER" if logical else "USER"\n        values = (name, str(start), str(sectors), size_text, ptype, location)
+        location = "SUPER" if logical else "USER"
+        values = (name, str(start), str(sectors), size_text, ptype, location)
         for col, value in enumerate(values):
             self.table.setItem(row, col, QTableWidgetItem(value))
 
