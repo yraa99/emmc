@@ -15,6 +15,8 @@ class UserAreaTab(QWidget):
         self.console = console
         self.partitions = []
         self.gpt_busy = False
+        self.buildprop_busy = False
+        self.buildprop_found = False
         self.gpt_timeout = QTimer(self)
         self.gpt_timeout.setSingleShot(True)
         self.gpt_timeout.timeout.connect(self.on_gpt_timeout)
@@ -36,6 +38,17 @@ class UserAreaTab(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table, 1)
+
+        prop_box = QGroupBox("BUILD.PROP")
+        prop_layout = QVBoxLayout(prop_box)
+        self.buildprop_status = QLabel("Not scanned")
+        self.buildprop_text = QPlainTextEdit()
+        self.buildprop_text.setReadOnly(True)
+        self.buildprop_text.setPlaceholderText("build.prop will be extracted automatically by SCAN GPT when an EXT4 Android partition is found.")
+        self.buildprop_text.setMinimumHeight(140)
+        prop_layout.addWidget(self.buildprop_status)
+        prop_layout.addWidget(self.buildprop_text)
+        layout.addWidget(prop_box)
 
         btn = QHBoxLayout()
         btn.setSpacing(8)
@@ -84,10 +97,14 @@ class UserAreaTab(QWidget):
         self.stop.setEnabled(False)
         self.partitions.clear()
         self.table.setRowCount(0)
-        self.console.log("GPT REQUEST")
+        self.console.log("SCAN GPT REQUEST")
+        self.buildprop_busy = True
+        self.buildprop_found = False
+        self.buildprop_status.setText("Scanning GPT and searching build.prop...")
+        self.buildprop_text.clear()
         try:
             self.emmc.gpt()
-            self.gpt_timeout.start(60000)
+            self.gpt_timeout.start(120000)
         except Exception as e:
             self.gpt_timeout.stop()
             self.console.log(f"GPT ERROR: {e}")
@@ -96,6 +113,35 @@ class UserAreaTab(QWidget):
 
     def handle_serial_data(self, obj):
         typ = obj.get("type")
+        if typ == "emmc.buildprop.begin":
+            self.buildprop_busy = True
+            self.buildprop_found = False
+            partition = str(obj.get("partition", ""))
+            self.buildprop_status.setText(f"Reading build.prop from {partition}...")
+            self.buildprop_text.clear()
+            self.console.log(f"BUILD.PROP SEARCH: {partition}")
+            return
+        if typ == "emmc.buildprop.chunk":
+            self.buildprop_text.moveCursor(self.buildprop_text.textCursor().MoveOperation.End)
+            self.buildprop_text.insertPlainText(str(obj.get("data", "")))
+            return
+        if typ == "emmc.buildprop.result":
+            ok = bool(obj.get("ok", False))
+            partition = str(obj.get("partition", ""))
+            if ok:
+                self.buildprop_found = True
+                self.buildprop_busy = False
+                self.buildprop_status.setText(f"Found: {partition}/build.prop")
+                self.console.log(f"BUILD.PROP OK: {partition}/build.prop ({obj.get('bytes', 0)} bytes)")
+            else:
+                self.console.log(f"BUILD.PROP MISS: {partition}: {obj.get('msg', 'not found')}")
+            return
+        if typ == "emmc.buildprop.end":
+            self.buildprop_busy = False
+            if not self.buildprop_found:
+                self.buildprop_status.setText("build.prop not found / unsupported filesystem")
+                self.console.log("BUILD.PROP: no supported build.prop found during SCAN GPT")
+            return
         if typ == "emmc.gpt.begin":
             self.partitions.clear()
             self.table.setRowCount(0)
@@ -140,8 +186,10 @@ class UserAreaTab(QWidget):
             self.gpt_timeout.stop()
             if not obj.get("ok", False):
                 self.gpt_busy = False
+                self.buildprop_busy = False
                 self.scan.setEnabled(True)
                 self.read.setEnabled(False)
+                self.buildprop_status.setText("GPT failed")
                 self.console.log("GPT ERROR: " + str(obj.get("msg", "unknown error")))
             return
         if typ == "emmc.dump.status":
@@ -160,9 +208,11 @@ class UserAreaTab(QWidget):
         if not self.gpt_busy:
             return
         self.gpt_busy = False
+        self.buildprop_busy = False
         self.scan.setEnabled(True)
         self.read.setEnabled(bool(self.partitions))
-        self.console.log("GPT TIMEOUT (60s): firmware tidak menyelesaikan scan GPT")
+        self.buildprop_status.setText("Scan GPT timeout")
+        self.console.log("SCAN GPT TIMEOUT (120s): firmware tidak menyelesaikan GPT/build.prop scan")
         try:
             self.emmc.stop_tests()
         except Exception:
