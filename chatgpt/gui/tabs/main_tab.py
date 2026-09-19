@@ -67,13 +67,11 @@ class MainTab(QWidget):
 
         self.btn_health = self._button("eMMC Health Check", primary=True)
         self.btn_extcsd = self._button("READ EXT_CSD")
-        self.btn_gpt = self._button("READ GPT")
         self.btn_cancel = self._button("CANCEL")
 
         grid.addWidget(self.btn_health, 0, 0)
         grid.addWidget(self.btn_extcsd, 0, 1)
-        grid.addWidget(self.btn_gpt, 1, 0)
-        grid.addWidget(self.btn_cancel, 1, 1)
+        grid.addWidget(self.btn_cancel, 1, 0)
         layout.addWidget(ops)
 
         special = QGroupBox("SPECIAL TASK")
@@ -83,8 +81,8 @@ class MainTab(QWidget):
             "FFU MODE", "SET BOOT PARTITION", "PARTITION CONFIG",
             "RPMB INFO", "SECURITY TASK"
         )):
-            b = self._button(label, enabled=False)
-            b.setToolTip("Disabled: this operation is disabled in pico-emmc-beta.")
+            b = self._button(label, enabled=True)
+            b.setToolTip("Run the corresponding pico-emmc-beta SPECIAL TASK handler.")
             self.special_buttons[label] = b
             sgrid.addWidget(b, i // 2, i % 2)
         layout.addWidget(special)
@@ -115,8 +113,16 @@ class MainTab(QWidget):
 
         self.btn_health.clicked.connect(lambda: self._call("health"))
         self.btn_extcsd.clicked.connect(lambda: self._call("extcsd"))
-        self.btn_gpt.clicked.connect(lambda: self._call("gpt"))
         self.btn_cancel.clicked.connect(lambda: self._call("cancel"))
+        for label, button in self.special_buttons.items():
+            command = {
+                "FFU MODE": "FFU",
+                "SET BOOT PARTITION": "SET_BOOT",
+                "PARTITION CONFIG": "PARTITION_CONFIG",
+                "RPMB INFO": "RPMB_INFO",
+                "SECURITY TASK": "SECURITY",
+            }[label]
+            button.clicked.connect(lambda checked=False, cmd=command: self._call("special", cmd))
         self.btn_isp_monitor.clicked.connect(lambda: self._call("isp_monitor_start", self.isp_frequency.value()))
         self.btn_isp_stop.clicked.connect(lambda: self._call("isp_monitor_stop"))
         self.btn_isp_cmd.clicked.connect(lambda: self._call("isp_cmd"))
