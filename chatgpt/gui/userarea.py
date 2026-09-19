@@ -271,12 +271,11 @@ class UserAreaTab(QWidget):
             self._log_buildprop_summary()
             self.gpt_timeout.stop()
             self.gpt_busy = False
-            self.scan.setEnabled(True)
             self.read.setEnabled(bool(self.partitions))
             if self.buildprop_found:
-                self.status.setText("GPT + system information ready")
+                self.status.setText("Partition map + system information ready")
             else:
-                self.status.setText("GPT ready; build.prop not found")
+                self.status.setText("Partition map ready; build.prop not found")
             return
 
         if typ == "emmc.lp.partition":
@@ -331,12 +330,11 @@ class UserAreaTab(QWidget):
         if typ == "emmc.gpt.end":
             if obj.get("ok", True):
                 self.gpt_count = int(obj.get("partitions", self.gpt_count))
-                self.console.log(f"READ GPT OK : {self.gpt_count} user-area partitions")
+                self.console.log(f"BOOT DEVICE OK : {self.gpt_count} user-area partitions")
             if not self.buildprop_busy:
                 self.gpt_busy = False
                 self.gpt_timeout.stop()
-                self.scan.setEnabled(True)
-                self.read.setEnabled(bool(self.partitions))
+                        self.read.setEnabled(bool(self.partitions))
             return
 
         if typ == "emmc.gpt.result":
@@ -379,8 +377,8 @@ class UserAreaTab(QWidget):
         self.buildprop_busy = False
         self.scan.setEnabled(True)
         self.read.setEnabled(bool(self.partitions))
-        self.status.setText("BOOT DEVICE/system scan timeout")
-        self.console.log("BOOT DEVICE TIMEOUT (120s)")
+        self.status.setText("Partition scan timeout")
+        self.console.log("PARTITION SCAN TIMEOUT (120s)")
         try:
             self.emmc.stop_tests()
         except Exception:
