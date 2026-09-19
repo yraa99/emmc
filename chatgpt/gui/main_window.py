@@ -278,6 +278,9 @@ class MainWindow(QMainWindow):
         self.btn_boot2.clicked.connect(lambda: self.show_service(self.boot))
         self.btn_extcsd.clicked.connect(lambda: self.show_service(self.boot))
         self.btn_userarea.clicked.connect(self.userarea.show_service_controls)
+        self.userarea.scan.clicked.connect(lambda: self.start_operation(120000, "READ GPT"))
+        self.userarea.read.clicked.connect(lambda: self.start_operation(3600000, "READ / BACKUP"))
+        self.userarea.stop.clicked.connect(self.cancel_operation)
 
         return page
 
@@ -656,6 +659,12 @@ class MainWindow(QMainWindow):
                 self.finish_operation(True, "HEALTH OK")
             else:
                 self.finish_operation(False, "HEALTH FAILED")
+        elif typ == "emmc.dump.status":
+            state = str(obj.get("state", ""))
+            if state == "complete":
+                self.finish_operation(True, "READ COMPLETE")
+            elif state == "error":
+                self.finish_operation(False, "READ FAILED")
 
     def closeEvent(self, event):
         try:
