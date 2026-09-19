@@ -237,6 +237,7 @@ typedef struct {
 
 static buildprop_candidate_t g_buildprop_candidates[GPT_BUILDPROP_MAX_CANDIDATES];
 static uint32_t g_buildprop_candidate_count = 0u;
+static bool gpt_has_super_partition = false;
 static uint8_t g_ext4_block[GPT_BUILDPROP_MAX_BLOCK];
 static uint8_t g_ext4_gdt[GPT_BUILDPROP_MAX_BLOCK];
 static uint8_t g_ext4_sbraw[GPT_BUILDPROP_MAX_BLOCK];
@@ -537,9 +538,13 @@ static void scan_buildprop_after_gpt(bool hc) {
         if (rc < 0) return;
         if (rc > 0) { found = true; break; }
     }
-    app_send_text(found
-        ? "{\"type\":\"emmc.buildprop.end\",\"ok\":true}\n"
-        : "{\"type\":\"emmc.buildprop.end\",\"ok\":false}\n");
+    if (found) {
+        app_send_text("{\"type\":\"emmc.buildprop.end\",\"ok\":true}\n");
+    } else if (gpt_has_super_partition) {
+        app_send_text("{\"type\":\"emmc.buildprop.end\",\"ok\":false,\"msg\":\"No physical Android partition found; GPT contains super with logical partitions not parsed by this firmware yet\"}\n");
+    } else {
+        app_send_text("{\"type\":\"emmc.buildprop.end\",\"ok\":false,\"msg\":\"No supported build.prop found in physical Android partitions\"}\n");
+    }
 }
 
 static void gpt_utf16_name(const uint8_t *src, char *dst, size_t dst_len) {
@@ -574,6 +579,7 @@ static bool send_gpt_result(void) {
     uint32_t entry_size = gpt_le32(&hdr[84]);
     uint32_t valid_partitions = 0u;
     g_buildprop_candidate_count = 0u;
+    gpt_has_super_partition = false;
     if (header_size < 92u || header_size > 512u || entry_size < 128u || entry_size > 512u || entry_count == 0u) {
         return app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"Invalid GPT header\"}\n");
     }
@@ -627,6 +633,7 @@ static bool send_gpt_result(void) {
                    (unsigned long)i, name, (unsigned long long)first, (unsigned long long)last,
                    (unsigned long long)(last - first + 1ull));
         if (!app_send_text(out)) return false;
+        if (strcasecmp(name, "super") == 0) gpt_has_super_partition = true;
         buildprop_add_candidate(name, first, last - first + 1ull);
         valid_partitions++;
     }
