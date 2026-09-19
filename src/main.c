@@ -399,7 +399,10 @@ static void process_command(char *cmd) {
     }
 
     if (strcmp(cmd, "GPT") == 0) {
-        send_gpt_result();
+        /* GPT is owned by the eMMC protocol layer so it always performs a
+           fresh card preparation before reading LBA1/partition entries. */
+        signal_monitor_stop();
+        proto_emmc_handle_text("emmc.gpt", "{\"type\":\"emmc.gpt\"}");
         return;
     }
 

@@ -16,9 +16,13 @@ class IdentifyTab(QWidget):
     def setup(self):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("eMMC IDENTIFY"))
-        self.table = QTableWidget(10, 2)
+        self.table = QTableWidget(16, 2)
         self.table.setHorizontalHeaderLabels(["PARAMETER", "VALUE"])
-        fields = ["Manufacturer", "Model", "CID", "CSD", "EXT_CSD", "Capacity", "Sector Size", "Bus Width", "Clock", "Status"]
+        fields = [
+            "Manufacturer", "MID", "CBX", "OID", "Model", "PRV",
+            "Serial Number", "Manufacturing Date", "CID", "CSD",
+            "EXT_CSD", "Capacity", "Sector Size", "Bus Width", "Clock", "Status"
+        ]
         for i, f in enumerate(fields):
             self.table.setItem(i, 0, QTableWidgetItem(f))
         row = QHBoxLayout()
@@ -48,8 +52,15 @@ class IdentifyTab(QWidget):
         ocr = int(obj.get("ocr", 0))
         self.set_value("CID", cid)
         self.set_value("CSD", csd)
-        self.set_value("Manufacturer", self.cid_mid(cid))
-        self.set_value("Model", self.cid_pnm(cid))
+        fields = self.decode_cid(cid)
+        self.set_value("Manufacturer", fields["manufacturer"])
+        self.set_value("MID", fields["mid"])
+        self.set_value("CBX", fields["cbx"])
+        self.set_value("OID", fields["oid"])
+        self.set_value("Model", fields["pnm"])
+        self.set_value("PRV", fields["prv"])
+        self.set_value("Serial Number", fields["psn"])
+        self.set_value("Manufacturing Date", fields["mdt"])
         self.set_value("Capacity", self.csd_capacity(csd))
         self.set_value("Sector Size", "512 bytes")
         self.set_value("Bus Width", "1-bit")
@@ -64,6 +75,42 @@ class IdentifyTab(QWidget):
             if self.table.item(r, 0) and self.table.item(r, 0).text() == field:
                 self.table.setItem(r, 1, QTableWidgetItem(str(value)))
                 return
+
+    @staticmethod
+    def decode_cid(cid):
+        try:
+            b = bytes.fromhex(cid)
+            if len(b) != 16:
+                raise ValueError
+            mid = b[0]
+            cbx = b[1] & 0x03
+            oid = b[2]
+            pnm = b[3:9].decode("ascii", errors="replace").rstrip(" \x00")
+            prv = b[9]
+            psn = int.from_bytes(b[10:14], "big")
+            mdt = b[14]
+            manufacturers = {
+                0x13: "Micron",
+                0x15: "Samsung",
+                0x11: "Toshiba/Kioxia",
+                0x45: "SanDisk/Western Digital",
+                0xAD: "SK hynix",
+            }
+            return {
+                "manufacturer": manufacturers.get(mid, "Unknown"),
+                "mid": f"0x{mid:02X}",
+                "cbx": f"0x{cbx:02X}",
+                "oid": f"0x{oid:02X}",
+                "pnm": pnm,
+                "prv": f"0x{prv:02X}",
+                "psn": f"0x{psn:08X}",
+                "mdt": f"0x{mdt:02X}",
+            }
+        except Exception:
+            return {
+                "manufacturer": "", "mid": "", "cbx": "", "oid": "",
+                "pnm": "", "prv": "", "psn": "", "mdt": ""
+            }
 
     @staticmethod
     def cid_mid(cid):

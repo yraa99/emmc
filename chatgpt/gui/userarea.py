@@ -114,8 +114,16 @@ class UserAreaTab(QWidget):
             return
         if typ == "emmc.gpt.end":
             self.gpt_busy = False
-            self.console.log(f"GPT READY - {len(self.partitions)} real partition(s)")
-            self.read.setEnabled(bool(self.partitions))
+            count = int(obj.get("partitions", len(self.partitions)))
+            if count > 0 and len(self.partitions) > 0:
+                self.console.log(
+                    f"GPT READY - {len(self.partitions)} real partition(s), "
+                    f"entries LBA={obj.get('entries_lba', '-')}"
+                )
+                self.read.setEnabled(True)
+            else:
+                self.console.log("GPT ERROR: valid GPT header found, but no valid partition entries were found")
+                self.read.setEnabled(False)
             self.verify.setEnabled(False)
             return
         if typ == "emmc.gpt.result":
