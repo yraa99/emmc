@@ -52,6 +52,7 @@ class SpecialTaskTab(QWidget):
         self.security_received = 0
         self.security_expected = 0
         self.health_busy = False
+        self.security_scan_only = False
         self.setup()
 
     @classmethod
@@ -123,6 +124,7 @@ class SpecialTaskTab(QWidget):
             return
         if name == "SECURITY TASK":
             self.security_parts = []
+            self.security_scan_only = True
             self.security_waiting_gpt = True
             self.security_waiting_buildprop = False
             self.console.log("SECURITY TASK: scanning GPT...")
@@ -156,6 +158,7 @@ class SpecialTaskTab(QWidget):
         self.security_parts = []
         self.security_index = 0
         self.security_current = None
+        self.security_scan_only = False
         self.security_waiting_gpt = True
         self.security_waiting_buildprop = True
         self.console.log("SECURITY BACKUP: scanning GPT for security/identity partitions...")
@@ -227,6 +230,9 @@ class SpecialTaskTab(QWidget):
             if not obj.get("ok", True):
                 self.security_waiting_buildprop = False
                 self.console.log("SECURITY TASK/Backup ERROR: GPT scan failed")
+                return
+            if self.security_scan_only:
+                self.console.log(f"SECURITY TASK COMPLETE: {len(self.security_parts)} candidate partition(s)")
                 return
             if self.security_waiting_buildprop:
                 return
