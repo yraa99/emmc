@@ -4,12 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "web_server.h"
-
+/* USB CDC transport used by the active RP2040 eMMC firmware. */
 bool app_send_text(const char *text);
 bool app_send_binary(const uint8_t *data, uint16_t len);
-ws_conn_t *app_current_client(void);
 uint8_t app_debug_level(void);
-bool app_debug_log(uint8_t level, const char *scope, const char *msg);
+void app_debug_log(uint8_t level, const char *scope, const char *msg);
 
 #endif
