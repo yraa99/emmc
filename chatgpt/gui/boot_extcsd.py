@@ -113,7 +113,6 @@ class BootExtCSDTab(QWidget):
             self.console.log(f"BOOT file selected: {path}")
 
     def readExtCSD(self):
-        self.console.log("Reading EXT_CSD ...")
         self.readExt.setEnabled(False)
         try:
             self.emmc.extcsd()
