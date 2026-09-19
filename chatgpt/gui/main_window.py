@@ -20,7 +20,6 @@ from gui.boot_extcsd import BootExtCSDTab
 from gui.userarea import UserAreaTab
 from gui.health import HealthTab
 from gui.special_task import SpecialTaskTab
-from gui.adb_fastboot import ADBFastbootTab
 from gui.isp_test import ISPTestTab
 
 
@@ -195,10 +194,6 @@ class MainWindow(QMainWindow):
             self.console,
         )
 
-        self.adb = ADBFastbootTab(
-            self.console,
-        )
-
         self.isp = ISPTestTab(
             self.emmc,
             self.console,
@@ -231,11 +226,6 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(
             self.special,
             "SPECIAL TASK",
-        )
-
-        self.tabs.addTab(
-            self.adb,
-            "ADB / FASTBOOT",
         )
 
         self.tabs.addTab(
