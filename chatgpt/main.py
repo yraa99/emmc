@@ -98,7 +98,7 @@ class App:
                     state = str(packet.get("state", ""))
                     if state in ("complete", "error", "stopped"):
                         window.console.log(
-                            f"READ {state}: {packet.get('detail', '')}".strip()
+                            f"BACKUP {state}: {packet.get('detail', '')}".strip()
                         )
                     return
                 if kind == "emmc.pin_test.result":
@@ -131,7 +131,7 @@ class App:
                             main_binary(bytes(data))
                         except Exception as e:
                             window.console.log(f"UI MAIN BINARY ERROR: {e}")
-                    for tab in (window.userarea, window.boot, window.health):
+                    for tab in (window.userarea, window.boot, window.health, window.special):
                         handler = getattr(tab, "handle_binary_data", None)
                         if handler:
                             try:
