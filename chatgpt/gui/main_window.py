@@ -477,98 +477,18 @@ class MainWindow(QMainWindow):
         else:
             self.setStyleSheet("QMainWindow,QWidget{background:#f2f4f6;color:#20252a;font-family:Segoe UI;font-size:10pt;}QLabel{color:#20252a;}QGroupBox{border:1px solid #c6ccd2;border-radius:5px;margin-top:7px;padding-top:5px;font-weight:bold;color:#4b545c;}QGroupBox::title{subcontrol-origin:margin;left:8px;padding:0 5px;color:#4b545c;background:#f2f4f6;}QPushButton{background:#fff;border:1px solid #b8c0c7;border-radius:4px;padding:4px 10px;color:#20252a;min-height:28px;}QPushButton:hover{background:#e8edf1;}QPushButton:disabled{color:#9aa2a9;background:#e6e9ec;}QComboBox,QSpinBox{background:#fff;border:1px solid #b8c0c7;border-radius:4px;padding:4px 7px;color:#20252a;min-height:24px;}QTabWidget::pane{border:1px solid #c6ccd2;background:#fff;}QTabBar::tab{background:#e6e9ec;border:1px solid #c6ccd2;padding:7px 12px;color:#4b545c;}QTabBar::tab:selected{background:#fff;color:#111;}QSplitter::handle{background:#c1c7cc;width:4px;}QProgressBar{border:1px solid #c6ccd2;border-radius:4px;background:#fff;text-align:center;color:#20252a;min-height:18px;}QProgressBar::chunk{background:#7b8791;}")
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.MouseButtonPress and isinstance(obj, QPushButton) and obj.isEnabled():
+        if (
+            event.type() == QEvent.Type.MouseButtonPress
+            and isinstance(obj, QPushButton)
+            and obj.isEnabled()
+        ):
             self.log_text.clear()
             self.progress_bar.setValue(0)
             self.operation_label.setText("Command running...")
             self.footer_status.setText("Running")
         return super().eventFilter(obj, event)
 
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.MouseButtonPress and isinstance(obj, QPushButton) and obj.isEnabled():
-            self.log_text.clear()
-            self.progress_bar.setValue(0)
-        return super().eventFilter(obj, event)
-
     def closeEvent(self, event):
-        try:
-            if self.serial and self.serial.is_connected():
-                self.serial.disconnect()
-        except Exception:
-            pass
-        event.accept()        elif kind == "emmc.buildprop.end":
-            if packet.get("ok", False):
-                self.progress_bar.setValue(100)
-                self.operation_label.setText("GPT / build.prop scan complete")
-                self.footer_status.setText("Ready")
-                self.btn_cancel.setEnabled(False)
-                self.operation_timer.stop()
-        elif kind == "emmc.dump.status":
-            state = str(packet.get("state", ""))
-            done = int(packet.get("done_blocks", 0))
-            total = max(1, int(packet.get("total_blocks", 1)))
-            if state not in ("complete", "error", "stopped"):
-                self.progress_bar.setValue(min(99, int(done * 100 / total)))
-            else:
-                self.progress_bar.setValue(100 if state == "complete" else 0)
-                self.operation_label.setText(f"READ {state}")
-                self.footer_status.setText("Ready" if state == "complete" else "Error")
-                self.btn_cancel.setEnabled(False)
-                self.operation_timer.stop()
-
-    def begin_command(self, label):
-        self.log_text.clear()
-        self.progress_bar.setValue(0)
-        self.operation_label.setText(f"{label} running...")
-        self.footer_status.setText(label)
-        self.btn_cancel.setEnabled(True)
-        self.operation_timer.start(120000)
-
-    def finish_operation(self, success=True):
-        self.operation_timer.stop()
-        self.btn_cancel.setEnabled(False)
-        self.progress_bar.setValue(100 if success else 0)
-        self.operation_label.setText("Operation complete" if success else "Operation failed")
-        self.footer_status.setText("Ready" if success else "Error")
-
-    def run_special_task(self, command):
-        self.begin_command(f"SPECIAL TASK: {command}")
-        try:
-            self.special.command(command)
-            self.finish_operation(True)
-        except Exception as e:
-            self.console.log(f"SPECIAL TASK ERROR: {e}")
-            self.finish_operation(False)
-
-    def toggle_theme(self):
-        self.dark_theme = not self.dark_theme
-        self.apply_theme()
-        self.btn_theme.setText("☀ LIGHT" if self.dark_theme else "🌙 DARK")
-
-    def apply_theme(self):
-        if self.dark_theme:
-            self.setStyleSheet("QMainWindow,QWidget{background:#111417;color:#d7dde2;font-family:Segoe UI;font-size:10pt;}QLabel{color:#d7dde2;}QGroupBox{border:1px solid #30373d;border-radius:5px;margin-top:7px;padding-top:5px;font-weight:bold;color:#aeb8c0;}QGroupBox::title{subcontrol-origin:margin;left:8px;padding:0 5px;color:#9da8b0;}QPushButton{background:#20262b;border:1px solid #3b444b;border-radius:4px;padding:4px 10px;color:#dce2e6;min-height:28px;}QPushButton:hover{background:#293137;}QPushButton:disabled{color:#596168;background:#171b1e;}QComboBox,QSpinBox{background:#181d21;border:1px solid #3a434a;border-radius:4px;padding:4px 7px;color:#dce2e6;min-height:24px;}QTabWidget::pane{border:1px solid #30373d;background:#151a1e;}QTabBar::tab{background:#1b2024;border:1px solid #30373d;padding:7px 12px;color:#8f9aa3;}QTabBar::tab:selected{background:#30383f;color:#fff;}QSplitter::handle{background:#30383e;width:4px;}QProgressBar{border:1px solid #30373d;border-radius:4px;background:#181d21;text-align:center;color:#d7dde2;min-height:18px;}QProgressBar::chunk{background:#46535d;}")
-        else:
-            self.setStyleSheet("QMainWindow,QWidget{background:#f2f4f6;color:#20252a;font-family:Segoe UI;font-size:10pt;}QLabel{color:#20252a;}QGroupBox{border:1px solid #c6ccd2;border-radius:5px;margin-top:7px;padding-top:5px;font-weight:bold;color:#4b545c;}QGroupBox::title{subcontrol-origin:margin;left:8px;padding:0 5px;color:#4b545c;background:#f2f4f6;}QPushButton{background:#fff;border:1px solid #b8c0c7;border-radius:4px;padding:4px 10px;color:#20252a;min-height:28px;}QPushButton:hover{background:#e8edf1;}QPushButton:disabled{color:#9aa2a9;background:#e6e9ec;}QComboBox,QSpinBox{background:#fff;border:1px solid #b8c0c7;border-radius:4px;padding:4px 7px;color:#20252a;min-height:24px;}QTabWidget::pane{border:1px solid #c6ccd2;background:#fff;}QTabBar::tab{background:#e6e9ec;border:1px solid #c6ccd2;padding:7px 12px;color:#4b545c;}QTabBar::tab:selected{background:#fff;color:#111;}QSplitter::handle{background:#c1c7cc;width:4px;}QProgressBar{border:1px solid #c6ccd2;border-radius:4px;background:#fff;text-align:center;color:#20252a;min-height:18px;}QProgressBar::chunk{background:#7b8791;}")
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.MouseButtonPress and isinstance(obj, QPushButton) and obj.isEnabled():
-            self.log_text.clear()
-            self.progress_bar.setValue(0)
-            self.operation_label.setText("Command running...")
-            self.footer_status.setText("Running")
-        return super().eventFilter(obj, event)
-
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.MouseButtonPress and isinstance(obj, QPushButton) and obj.isEnabled():
-            self.log_text.clear()
-            self.progress_bar.setValue(0)
-        return super().eventFilter(obj, event)
-
-    def closeEvent(self, event):
-        try:
-            self.clock_timer.stop()
-        except Exception:
-            pass
         try:
             if self.serial and self.serial.is_connected():
                 self.serial.disconnect()
