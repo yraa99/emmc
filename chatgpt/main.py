@@ -45,21 +45,42 @@ class App:
                 try:
                     obj = json.loads(raw)
                 except Exception:
-                    /*
-                     * Firmware debug text can be emitted immediately after a
-                     * JSON packet on the same USB CDC delivery. Parse the
-                     * first complete JSON value instead of dropping a valid
-                     * IDENTIFY/GPT result and waiting for the GUI timeout.
-                     */
-                    try:
-                        decoder = json.JSONDecoder()
-                        obj, end = decoder.raw_decode(raw.lstrip())
-                        trailing = raw.lstrip()[end:].strip()
-                        if trailing:
-                            window.console.log(trailing)
-                    except Exception:
+                    # Firmware debug text can be concatenated with one or more
+                    # JSON packets in the same CDC delivery. Recover every
+                    # complete JSON value instead of dropping valid responses.
+                    decoder = json.JSONDecoder()
+                    remainder = raw.lstrip()
+                    packets = []
+                    while remainder:
+                        try:
+                            value, end = decoder.raw_decode(remainder)
+                        except json.JSONDecodeError:
+                            break
+                        packets.append(value)
+                        remainder = remainder[end:].lstrip()
+                    if not packets:
                         window.console.log(text)
                         continue
+                    for packet in packets:
+                        if isinstance(packet, dict) and packet.get("type") == "signal.status":
+                            handler = getattr(window.isp, "handle_serial_data", None)
+                            if handler:
+                                try:
+                                    handler(packet)
+                                except Exception as e:
+                                    window.console.log(f"UI SIGNAL ERROR: {e}")
+                            continue
+                        window.console.log(json.dumps(packet, ensure_ascii=False))
+                        for tab in (window.identify, window.boot, window.userarea, window.health, window.isp):
+                            handler = getattr(tab, "handle_serial_data", None)
+                            if handler:
+                                try:
+                                    handler(packet)
+                                except Exception as e:
+                                    window.console.log(f"UI RX ERROR: {e}")
+                    if remainder:
+                        window.console.log(remainder)
+                    continue
 
                 # Realtime signal packets belong exclusively to ISP TEST.
                 # Do not pollute the normal Console / Log with high-rate status.
