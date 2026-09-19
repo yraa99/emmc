@@ -412,8 +412,8 @@ class MainWindow(QMainWindow):
 
     def program_read(self, key):
         if key == "extcsd":
-            self.console.log("EXT_CSD: use BACKUP in the BOOT / EXT_CSD service view to save the 512-byte image")
             self.show_service(self.boot)
+            self.boot.backupExtCSD()
             return
         if key == "boot1":
             self.show_service(self.boot)
