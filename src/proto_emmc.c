@@ -1,6 +1,6 @@
 #include "proto_emmc.h"
 
-extern bool app_handle_gpt(void);
+extern bool app_handle_gpt(bool include_buildprop);
 
 #include <stdbool.h>
 #include <stdint.h>
