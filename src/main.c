@@ -616,60 +616,133 @@ static bool lp_name_matches(const char *name) {
     return buildprop_name_candidate(name);
 }
 
-static bool lp_parse_slot(const buildprop_candidate_t *super_candidate, bool hc, uint32_t slot) {
+static bool lp_read_geometry(const buildprop_candidate_t *super_candidate, bool hc,
+                               uint32_t *metadata_max, uint32_t *slot_count,
+                               uint32_t *logical_block) {
     uint8_t geom[512];
-    uint8_t hdr[256];
-    if (!super_candidate || !super_candidate->sectors) return false;
+    uint64_t candidates[3];
+    if (!super_candidate || !metadata_max || !slot_count || !logical_block) return false;
 
-    if (!super_read_bytes(super_candidate->start_lba, super_candidate->sectors, hc, 0u, sizeof(geom), geom) ||
-        ext4_le32(geom) != 0x616C4467u || ext4_le32(&geom[4]) < 52u ||
-        ext4_le32(&geom[4]) > 4096u) {
-        if (!super_read_bytes(super_candidate->start_lba, super_candidate->sectors, hc, 4096u, sizeof(geom), geom) ||
-            ext4_le32(geom) != 0x616C4467u) return false;
+    candidates[0] = 4096u; /* primary geometry */
+    candidates[1] = 8192u; /* backup geometry */
+    candidates[2] = (uint64_t)super_candidate->sectors * 512u >= 4096u
+                        ? (uint64_t)super_candidate->sectors * 512u - 4096u
+                        : UINT64_MAX;
+
+    for (size_t i = 0; i < 3u; ++i) {
+        if (candidates[i] == UINT64_MAX ||
+            !super_read_bytes(super_candidate->start_lba, super_candidate->sectors,
+                              hc, candidates[i], sizeof(geom), geom)) {
+            continue;
+        }
+        if (ext4_le32(geom) != 0x616C4467u ||
+            ext4_le32(&geom[4]) < 52u ||
+            ext4_le32(&geom[4]) > 4096u) {
+            continue;
+        }
+        *metadata_max = ext4_le32(&geom[40]);
+        *slot_count = ext4_le32(&geom[44]);
+        *logical_block = ext4_le32(&geom[48]);
+        if (*metadata_max == 0u || (*metadata_max % 512u) != 0u ||
+            *slot_count == 0u || *slot_count > 4u ||
+            *logical_block < 512u || (*logical_block % 512u) != 0u ||
+            *metadata_max > LP_MAX_METADATA_BYTES) {
+            continue;
+        }
+        return true;
     }
+    return false;
+}
 
-    uint32_t metadata_max = ext4_le32(&geom[40]);
-    uint32_t slot_count = ext4_le32(&geom[44]);
-    uint32_t logical_block = ext4_le32(&geom[48]);
-    if (metadata_max == 0u || metadata_max > LP_MAX_METADATA_BYTES ||
-        (metadata_max % 512u) != 0u || slot_count == 0u || slot >= slot_count ||
-        logical_block < 512u || (logical_block % 512u) != 0u) return false;
-
-    uint64_t metadata_off = 4096u + 8192u + (uint64_t)metadata_max * slot;
-    if (metadata_off + 256u > (uint64_t)super_candidate->sectors * 512u) return false;
-    if (!super_read_bytes(super_candidate->start_lba, super_candidate->sectors, hc, metadata_off, sizeof(hdr), hdr)) return false;
+static bool lp_parse_metadata_copy(const buildprop_candidate_t *super_candidate, bool hc,
+                                   uint32_t slot, uint64_t metadata_off,
+                                   uint32_t metadata_max, uint32_t logical_block,
+                                   bool *found_any) {
+    uint8_t hdr[256];
+    if (!super_candidate || !metadata_max || !found_any) return false;
+    if (metadata_off + 128u > (uint64_t)super_candidate->sectors * 512u) return false;
+    if (!super_read_bytes(super_candidate->start_lba, super_candidate->sectors,
+                          hc, metadata_off, sizeof(hdr), hdr)) return false;
     if (ext4_le32(hdr) != 0x414C5030u) return false;
 
+    uint16_t major = ext4_le16(&hdr[4]);
+    uint16_t minor = ext4_le16(&hdr[6]);
     uint32_t header_size = ext4_le32(&hdr[8]);
     uint32_t tables_size = ext4_le32(&hdr[44]);
-    if (header_size < 124u || header_size > 256u || tables_size == 0u || tables_size > metadata_max - header_size) return false;
+    if (major != 10u || minor > 2u || header_size < 124u ||
+        header_size > 256u || tables_size == 0u ||
+        tables_size > metadata_max - header_size) return false;
 
+    /*
+     * LpMetadataHeader layout:
+     * partitions descriptor @80, extents @92, groups @104,
+     * block-devices @116. Offsets are relative to the end of the header.
+     */
     uint32_t part_off = ext4_le32(&hdr[80]);
     uint32_t part_count = ext4_le32(&hdr[84]);
     uint32_t part_size = ext4_le32(&hdr[88]);
     uint32_t ext_off = ext4_le32(&hdr[92]);
     uint32_t ext_count = ext4_le32(&hdr[96]);
     uint32_t ext_size = ext4_le32(&hdr[100]);
-    if (part_count == 0u || part_count > 256u || part_size < 52u || part_size > 256u ||
-        ext_count == 0u || ext_count > 2048u || ext_size < 24u || ext_size > 128u) return false;
+    uint32_t group_off = ext4_le32(&hdr[104]);
+    uint32_t group_count = ext4_le32(&hdr[108]);
+    uint32_t group_size = ext4_le32(&hdr[112]);
+    uint32_t dev_off = ext4_le32(&hdr[116]);
+    uint32_t dev_count = ext4_le32(&hdr[120]);
+    uint32_t dev_size = ext4_le32(&hdr[124]);
+
+    if (part_count == 0u || part_count > 256u ||
+        ext_count == 0u || ext_count > 4096u ||
+        group_count > 256u || dev_count == 0u || dev_count > 16u ||
+        part_size < 52u || part_size > 256u ||
+        ext_size < 24u || ext_size > 128u ||
+        (group_count && (group_size < 44u || group_size > 128u)) ||
+        (dev_count && (dev_size < 64u || dev_size > 128u))) {
+        return false;
+    }
+
+    uint32_t table_end = header_size + tables_size;
+    if (table_end > metadata_max) return false;
+
+    #define LP_TABLE_VALID(off, count, size) \
+        ((off) <= tables_size && (uint64_t)(count) * (size) <= (uint64_t)tables_size - (off))
+
+    if (!LP_TABLE_VALID(part_off, part_count, part_size) ||
+        !LP_TABLE_VALID(ext_off, ext_count, ext_size) ||
+        !LP_TABLE_VALID(group_off, group_count, group_size) ||
+        !LP_TABLE_VALID(dev_off, dev_count, dev_size)) {
+        return false;
+    }
+    #undef LP_TABLE_VALID
 
     for (uint32_t i = 0u; i < part_count; ++i) {
         uint8_t part[256];
-        uint64_t poff = metadata_off + header_size + part_off + (uint64_t)i * part_size;
-        if (part_size > sizeof(part) || poff + part_size > metadata_off + header_size + tables_size) return false;
-        if (!super_read_bytes(super_candidate->start_lba, super_candidate->sectors, hc, poff, part_size, part)) return false;
+        uint64_t poff = metadata_off + header_size + part_off +
+                        (uint64_t)i * part_size;
+        if (part_size > sizeof(part) ||
+            poff + part_size > metadata_off + table_end ||
+            !super_read_bytes(super_candidate->start_lba, super_candidate->sectors,
+                              hc, poff, part_size, part)) {
+            return false;
+        }
 
         uint32_t attrs = ext4_le32(&part[36]);
-        if (attrs & 0x08u) continue; /* LP_PARTITION_ATTR_DISABLED */
+        if (attrs & ~0x0Fu) continue; /* unknown LP attributes: ignore safely */
+        if (attrs & 0x08u) continue;  /* disabled */
+
         uint32_t first_extent = ext4_le32(&part[40]);
         uint32_t num_extents = ext4_le32(&part[44]);
-        if (!num_extents || first_extent >= ext_count || num_extents > GPT_BUILDPROP_MAX_EXTENTS ||
-            first_extent + num_extents > ext_count) continue;
+        uint32_t group_index = ext4_le32(&part[48]);
+        if (!num_extents || num_extents > GPT_BUILDPROP_MAX_EXTENTS ||
+            first_extent > ext_count || num_extents > ext_count - first_extent ||
+            (group_count && group_index >= group_count)) {
+            continue;
+        }
 
         char base_name[40];
         memset(base_name, 0, sizeof(base_name));
-        memcpy(base_name, part, part_size < 36u ? part_size : 36u);
-        base_name[sizeof(base_name) - 1u] = 0;
+        memcpy(base_name, part, 36u);
+        base_name[39] = 0;
         if (!lp_name_matches(base_name)) continue;
 
         char name[40];
@@ -683,32 +756,131 @@ static bool lp_parse_slot(const buildprop_candidate_t *super_candidate, bool hc,
         buildprop_extent_t extents[GPT_BUILDPROP_MAX_EXTENTS];
         memset(extents, 0, sizeof(extents));
         bool valid = true;
+        uint64_t total = 0u;
+
         for (uint32_t j = 0u; j < num_extents; ++j) {
             uint8_t ext[128];
             uint64_t eoff = metadata_off + header_size + ext_off +
                             (uint64_t)(first_extent + j) * ext_size;
-            if (ext_size > sizeof(ext) || eoff + ext_size > metadata_off + header_size + tables_size ||
-                !super_read_bytes(super_candidate->start_lba, super_candidate->sectors, hc, eoff, ext_size, ext)) {
+            if (ext_size > sizeof(ext) ||
+                eoff + ext_size > metadata_off + table_end ||
+                !super_read_bytes(super_candidate->start_lba, super_candidate->sectors,
+                                  hc, eoff, ext_size, ext)) {
                 valid = false;
                 break;
             }
+
             uint64_t sectors = lp_le64(ext);
             uint32_t target_type = ext4_le32(&ext[8]);
             uint64_t target_data = lp_le64(&ext[12]);
-            uint32_t target_source = (ext_size >= 24u) ? ext4_le32(&ext[20]) : 0u;
+            uint32_t target_source = ext4_le32(&ext[20]);
+
+            /* This RP2040 reader can safely map dm-linear extents from the
+               super partition itself. ZERO extents are intentionally skipped
+               because they do not contain filesystem bytes. */
             if (target_type != 0u || target_source != 0u || sectors == 0u ||
-                target_data + sectors > super_candidate->sectors) {
+                target_data > super_candidate->sectors ||
+                sectors > super_candidate->sectors - target_data) {
                 valid = false;
                 break;
             }
+
             extents[j].start_sector = target_data;
             extents[j].sectors = sectors;
+            if (total > UINT32_MAX - sectors) {
+                valid = false;
+                break;
+            }
+            total += sectors;
         }
-        if (valid) {
+
+        if (valid && total) {
             buildprop_add_logical_candidate(name, extents, num_extents);
+            *found_any = true;
+
+            char out[768];
+            size_t pos = 0u;
+            pos += (size_t)snprintf(out + pos, sizeof(out) - pos,
+                                    "{\"type\":\"emmc.lp.partition\","
+                                    "\"name\":\"%s\",\"start_lba\":%lu,"
+                                    "\"sectors\":%lu,\"extents\":[",
+                                    name, (unsigned long)(g_super_start_lba + extents[0].start_sector),
+                                    (unsigned long)total);
+            for (uint32_t j = 0u; j < num_extents && pos + 80u < sizeof(out); ++j) {
+                pos += (size_t)snprintf(out + pos, sizeof(out) - pos,
+                                        "%s{\"start\":%llu,\"sectors\":%llu}",
+                                        j ? "," : "",
+                                        (unsigned long long)extents[j].start_sector,
+                                        (unsigned long long)extents[j].sectors);
+            }
+            snprintf(out + pos, sizeof(out) - pos, "]}\n");
+            app_send_text(out);
         }
     }
+
+    (void)logical_block;
     return true;
+}
+
+static bool lp_parse_slot(const buildprop_candidate_t *super_candidate, bool hc, uint32_t slot,
+                          uint32_t metadata_max, uint32_t slot_count,
+                          uint32_t logical_block) {
+    if (!super_candidate || slot >= slot_count) return false;
+
+    const uint64_t primary_base = 4096u + 8192u;
+    const uint64_t backup_base = primary_base +
+                                 (uint64_t)metadata_max * slot_count;
+    const uint64_t offsets[2] = {
+        primary_base + (uint64_t)metadata_max * slot,
+        backup_base + (uint64_t)metadata_max * slot
+    };
+
+    bool found = false;
+    for (size_t copy = 0u; copy < 2u; ++copy) {
+        if (lp_parse_metadata_copy(super_candidate, hc, slot, offsets[copy],
+                                   metadata_max, logical_block, &found)) {
+            if (found) return true;
+        }
+    }
+    return false;
+}
+
+static bool scan_dynamic_super_candidates(const buildprop_candidate_t *super_candidate, bool hc) {
+    uint32_t before = g_buildprop_candidate_count;
+    uint32_t metadata_max = 0u;
+    uint32_t slot_count = 0u;
+    uint32_t logical_block = 0u;
+    bool parsed = false;
+
+    if (!super_candidate) return false;
+    app_send_text("{\"type\":\"emmc.lp.begin\",\"ok\":true}\n");
+
+    if (!lp_read_geometry(super_candidate, hc, &metadata_max, &slot_count, &logical_block)) {
+        app_send_text("{\"type\":\"emmc.lp.result\",\"ok\":false,"
+                      "\"msg\":\"Android LP geometry not found or invalid\"}\n");
+        return false;
+    }
+
+    uint32_t slots_to_scan = slot_count > 2u ? 2u : slot_count;
+    for (uint32_t slot = 0u; slot < slots_to_scan; ++slot) {
+        if (lp_parse_slot(super_candidate, hc, slot, metadata_max, slot_count, logical_block)) {
+            parsed = true;
+        }
+    }
+
+    if (parsed && g_buildprop_candidate_count > before) {
+        char out[192];
+        snprintf(out, sizeof(out),
+                 "{\"type\":\"emmc.lp.result\",\"ok\":true,"
+                 "\"logical_partitions\":%lu}\n",
+                 (unsigned long)(g_buildprop_candidate_count - before));
+        app_send_text(out);
+        return true;
+    }
+
+    app_send_text("{\"type\":\"emmc.lp.result\",\"ok\":false,"
+                  "\"msg\":\"Android LP metadata not found or unsupported\"}\n");
+    return false;
 }
 
 static bool scan_dynamic_super_candidates(const buildprop_candidate_t *super_candidate, bool hc) {
