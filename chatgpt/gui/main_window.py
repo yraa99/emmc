@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.emmc = emmc_core
         self.serial = serial_core
+        self.identify_sequence = False
 
         # Beta functional objects. These are the protocol/service handlers;
         # they are deliberately not added as extra top-level tabs.
@@ -56,8 +57,9 @@ class MainWindow(QMainWindow):
         self.adb_backend = BetaADBFastbootTab(None)
         self.factory_backend = BetaFactoryImageTab(None)
 
-        self.setWindowTitle("Pico eMMC Tool - Service Console")
-        self.resize(1024, 620)
+        self.setWindowTitle("RP2040 eMMC PROGRAMMER • eMMC Service Tool")
+        self.resize(1280, 800)
+        self.setMinimumSize(1050, 680)
 
         self.init_ui()
         self.start_clock_timer()
@@ -94,6 +96,12 @@ class MainWindow(QMainWindow):
         self.btn_refresh.clicked.connect(self.refresh_ports)
 
         self.btn_connect = QPushButton("CONNECT")
+
+        self.btn_identify = QPushButton("IDENTIFY")
+        self.btn_identify.setObjectName("mainAction")
+        self.btn_identify.setToolTip("Run the same IDENTIFY operation used by pico-emmc-beta")
+        self.btn_identify.clicked.connect(self.main_identify)
+
         self.btn_connect.setStyleSheet(
             "background-color: #388e3c; color: white; font-weight: bold;"
         )
@@ -108,6 +116,7 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(self.combo_port)
         header_layout.addWidget(self.btn_refresh)
         header_layout.addWidget(self.btn_connect)
+        header_layout.addWidget(self.btn_identify)
         header_layout.addStretch()
         header_layout.addWidget(self.lbl_datetime)
         main_layout.addLayout(header_layout)
@@ -156,6 +165,18 @@ class MainWindow(QMainWindow):
         self.tab_main = MainTab(self.emmc)
         self.tab_main.log_signal.connect(self.console.log)
         self.tab_main.progress_signal.connect(self.progress_bar.setValue)
+        self.tab_main.set_callbacks(
+            health=self.main_health,
+            extcsd=self.boot.readExtCSD,
+            gpt=self.main_gpt,
+            cancel=self.cancel_operation,
+            isp_monitor_start=self.isp.run_monitor_start,
+            isp_monitor_stop=self.isp.run_monitor_stop,
+            isp_cmd=self.isp.run_cmd,
+            isp_clk=self.isp.run_clk_wave,
+            isp_pins=self.isp.run_pins,
+            isp_cmd1=self.isp.run_cmd1,
+        )
 
         self.tab_userarea = UserAreaTab()
         self.tab_adb = ADBFastbootTab()
@@ -176,91 +197,91 @@ class MainWindow(QMainWindow):
         self.console.log("Pico eMMC Tool initialized successfully.")
 
     def _wire_beta_functions_to_gui_tabs(self):
-        """Connect the exact yraa99/gui widgets to pico-emmc-beta services.
+        """Keep the visual shell while routing every exposed control to beta services."""
+        # The active MAIN dashboard uses explicit callbacks above.
+        # Keep unsupported beta operations disabled, exactly as beta does.
+        self._userarea_backend_handler = self.userarea.handle_serial_data
 
-        The visual tab source files are intentionally untouched.  Some of the
-        visual source widgets do not expose button attributes, so buttons are
-        located by their visible text instead of modifying the source widgets.
-        """
-
-        def find_button(widget, text):
-            for button in widget.findChildren(QPushButton):
-                if button.text().strip() == text:
-                    return button
-            return None
-
-        def replace_click(button, slot):
-            if button is None or slot is None:
-                return
-            try:
-                button.clicked.disconnect()
-            except (TypeError, RuntimeError):
-                pass
-            button.clicked.connect(slot)
-
-        # MAIN — exact yraa99/gui buttons, real beta operations underneath.
-        replace_click(
-            find_button(self.tab_main, "WRITE"),
-            self._beta_write,
-        )
-        replace_click(
-            find_button(self.tab_main, "eMMC Health Check"),
-            self.identify.health_check_clicked,
-        )
-        replace_click(
-            find_button(self.tab_main, "ExtCSD Info"),
-            self.boot.readExtCSD,
-        )
-
-        # These controls exist in the visual source, but pico-emmc-beta does
-        # not provide a corresponding safe protocol. Keep them visible while
-        # preventing the visual placeholder handlers from pretending success.
-        for label in (
-            "Set Boot Partition",
-            "Partition Config",
-            "RPMB Info",
-            "Factory Reset",
-            "Factory Reset Safe",
-            "FRP Reset",
-            "FRP Samsung",
-        ):
-            button = find_button(self.tab_main, label)
-            if button is not None:
+        # ADB / Fastboot: use the full beta widget implementation underneath
+        # the compact visual shell where possible.
+        for label, method_name in {
+            "ADB Devices": "scan_adb",
+            "Reboot to Bootloader": "bootloader",
+            "Fastboot Devices": "scan_fastboot",
+        }.items():
+            button = next(
+                (b for b in self.tab_adb.findChildren(QPushButton)
+                 if b.text().strip() == label), None
+            )
+            method = getattr(self.adb_backend, method_name, None)
+            if button is not None and method is not None:
                 try:
                     button.clicked.disconnect()
                 except (TypeError, RuntimeError):
                     pass
-                button.setEnabled(False)
-                button.setToolTip(
-                    "Disabled: pico-emmc-beta does not expose this safe protocol."
-                )
+                button.clicked.connect(method)
 
-        # USER AREA — keep the exact visual widget and forward packets to the
-        # real beta User Area service.
-        self._userarea_backend_handler = self.userarea.handle_serial_data
-
-        # ADB FASTBOOT — map the exact visual buttons by their labels to the
-        # real beta ADB/Fastboot service.  The beta service already implements
-        # its own complete command set.
-        adb_map = {
-            "ADB Devices": "scan_adb",
-            "Reboot to Bootloader": "bootloader",
-            "Fastboot Devices": "scan_fastboot",
-        }
-        for label, method_name in adb_map.items():
-            button = find_button(self.tab_adb, label)
-            method = getattr(self.adb_backend, method_name, None)
-            replace_click(button, method)
-
-        # FACTORY IMAGE — keep the exact visual button. The beta backend is
-        # read/inspect-only and explicitly disables flashing.
-        factory_button = find_button(self.tab_factory, "Flash Factory Image")
-        replace_click(factory_button, self.factory_backend.flash_disabled)
+        factory_button = next(
+            (b for b in self.tab_factory.findChildren(QPushButton)
+             if b.text().strip() == "Flash Factory Image"), None
+        )
+        if factory_button is not None:
+            try:
+                factory_button.clicked.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            factory_button.clicked.connect(self.factory_backend.flash_disabled)
 
     def _beta_write(self):
-        # yraa99/gui exposes WRITE; pico-emmc-beta has no active safe write
-        # protocol. Do not report a false success.
         self.console.log("WRITE disabled: pico-emmc-beta has no active safe eMMC write protocol.")
+
+    def main_identify(self):
+        if not self.serial or not self.serial.is_connected():
+            self.console.log("IDENTIFY: RP2040 is not connected")
+            return
+        self.identify_sequence = True
+        self.console.log("IDENTIFY requested")
+        try:
+            self.identify.identify()
+        except Exception as e:
+            self.identify_sequence = False
+            self.console.log(f"IDENTIFY ERROR: {e}")
+
+    def main_gpt(self):
+        if not self.serial or not self.serial.is_connected():
+            self.console.log("READ GPT: RP2040 is not connected")
+            return
+        self.console.log("READ GPT requested")
+        try:
+            self.userarea.scanGPT()
+        except Exception as e:
+            self.console.log(f"READ GPT ERROR: {e}")
+
+    def main_health(self):
+        if not self.serial or not self.serial.is_connected():
+            self.console.log("eMMC HEALTH: RP2040 is not connected")
+            return
+        try:
+            self.health.readHealth()
+        except Exception as e:
+            self.console.log(f"HEALTH ERROR: {e}")
+
+    def cancel_operation(self):
+        try:
+            if self.emmc:
+                self.emmc.stop_tests()
+            self.console.log("CANCEL REQUEST SENT")
+        except Exception as e:
+            self.console.log(f"CANCEL ERROR: {e}")
+        try:
+            self.identify.cancel_identify()
+        except Exception:
+            pass
+        try:
+            self.isp.finish()
+        except Exception:
+            pass
+        self.identify_sequence = False
 
     def refresh_ports(self, auto_connect=True):
         self.combo_port.clear()
@@ -270,7 +291,9 @@ class MainWindow(QMainWindow):
             pico = self.serial.find_pico_port(ports) if self.serial else None
 
             for p in ports:
-                self.combo_port.addItem(p.device, p.device)
+                description = p.description or "Unknown Device"
+                prefix = "PICO USB - " if pico and p.device == pico.device else ""
+                self.combo_port.addItem(f"{prefix}{p.device} - {description}", p.device)
 
             if pico:
                 index = self.combo_port.findData(pico.device)
@@ -334,11 +357,17 @@ class MainWindow(QMainWindow):
         if not isinstance(packet, dict):
             return
 
+        # Keep the visible dashboard synchronized with beta results.
+        self.tab_main.handle_serial_data(packet)
+
         # Keep beta IDENTIFY -> GPT behavior.
         kind = packet.get("type", "")
         if kind == "emmc.identify.result":
             if packet.get("ok", False):
                 self.console.log("IDENTIFY OK - beta service result received")
+                if self.identify_sequence:
+                    self.identify_sequence = False
+                    self.main_gpt()
             else:
                 self.console.log(
                     "IDENTIFY ERROR: " + str(packet.get("msg", "unknown error"))
