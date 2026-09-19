@@ -675,7 +675,8 @@ static bool process_json_command(const char *cmd) {
     memcpy(type, p, n);
     type[n] = 0;
     if (strncmp(type, "emmc.", 5) != 0) return false;
-    return proto_emmc_handle_text(type, cmd);
+    (void)proto_emmc_handle_text(type, cmd);
+    return true;
 }
 
 static void process_command(char *cmd) {
