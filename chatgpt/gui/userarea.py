@@ -51,17 +51,11 @@ class UserAreaTab(QWidget):
         for widget in (getattr(self, "title", None), getattr(self, "status", None), getattr(self, "actions_widget", None)):
             if widget is not None:
                 widget.hide()
-        for button in (getattr(self, "scan", None), getattr(self, "read", None), getattr(self, "write", None), getattr(self, "stop", None)):
-            if button is not None:
-                button.hide()
 
     def show_service_controls(self):
         for widget in (getattr(self, "title", None), getattr(self, "status", None), getattr(self, "actions_widget", None)):
             if widget is not None:
                 widget.show()
-        for button in (getattr(self, "scan", None), getattr(self, "read", None), getattr(self, "write", None), getattr(self, "stop", None)):
-            if button is not None:
-                button.show()
 
     def setup(self):
         layout = QVBoxLayout(self)
@@ -72,7 +66,7 @@ class UserAreaTab(QWidget):
         title.setObjectName("section_title")
         layout.addWidget(title)
 
-        self.status = QLabel("Identify + BOOT DEVICE to load the partition map")
+        self.status = QLabel("Select a partition and use BACKUP")
         layout.addWidget(self.status)
 
         self.table = QTableWidget(0, 6)
@@ -93,23 +87,17 @@ class UserAreaTab(QWidget):
         self.actions_widget = QWidget()
         self.actions_widget.setLayout(actions)
         actions.setSpacing(8)
-        self.scan = QPushButton("BOOT DEVICE")
         self.read = QPushButton("BACKUP")
-        self.write = QPushButton("WRITE")
         self.stop = QPushButton("STOP")
-        self.write.setEnabled(False)
-        self.write.setToolTip("Disabled: firmware write protocol is not implemented.")
         self.stop.setEnabled(False)
-        for button in (self.scan, self.read, self.write, self.stop):
+        for button in (self.read, self.stop):
             button.setObjectName("serviceButton")
             button.setMinimumHeight(32)
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             actions.addWidget(button)
         layout.addLayout(actions)
 
-        self.scan.clicked.connect(self.scanGPT)
         self.read.clicked.connect(self.readPartition)
-        self.write.clicked.connect(self.writePartition)
         self.stop.clicked.connect(self.stopRead)
 
     def _add_meta_partitions(self):
@@ -131,8 +119,17 @@ class UserAreaTab(QWidget):
             return "ANDROID"
         if any(x in n for x in ("userdata", "user-data", "data")):
             return "USERDATA"
-        if any(x in n for x in ("imei", "nvram", "nvdata", "nvcfg", "persist", "modem", "efs", "fsg")):
-            return "SERVICE"
+        security_tokens = (
+            "imei", "nvram", "nvdata", "nvitem", "nvcfg", "persist",
+            "modemst", "modem_nv", "modemnvm", "modemsecure", "efs",
+            "sec_efs", "fsg", "fsc", "protect", "proinfo", "seccfg",
+            "prod_nv", "prodnv", "l_fixnv", "l_runtime", "misdata",
+            "md_sec", "oeminfo", "factory", "devinfo", "oppostanvbk",
+            "oppodycnvbk", "oppo_custom", "opporeserve", "asuskey",
+            "board_info", "secure_storage", "secure", "certification",
+        )
+        if any(x in n for x in security_tokens):
+            return "SECURITY"
         return "PARTITION"
 
     def scanGPT(self):
@@ -142,12 +139,11 @@ class UserAreaTab(QWidget):
         self.buildprop_busy = True
         self.buildprop_found = False
         self._buildprop_data = []
-        self.scan.setEnabled(False)
         self.read.setEnabled(False)
         self.stop.setEnabled(False)
         self.partitions.clear()
         self.table.setRowCount(0)
-        self.status.setText("Reading boot device and Android system information...")
+        self.status.setText("Reading partition map...")
         try:
             # Load hardware-area sizes first so BOOT1/BOOT2 rows are always
             # present before GPT partitions are appended.
@@ -159,8 +155,7 @@ class UserAreaTab(QWidget):
             self.gpt_busy = False
             self.buildprop_busy = False
             self.status.setText("GPT request failed")
-            self.scan.setEnabled(True)
-            self.console.log(f"GPT ERROR: {e}")
+                self.console.log(f"GPT ERROR: {e}")
 
     def _add_partition(self, name, start, sectors, ptype="GPT", status="READY", logical=False):
         if not name or sectors <= 0:
@@ -188,7 +183,10 @@ class UserAreaTab(QWidget):
         location = "SUPER" if logical else "USER"
         values = (name, str(start), str(sectors), size_text, ptype, location)
         for col, value in enumerate(values):
-            self.table.setItem(row, col, QTableWidgetItem(value))
+            cell = QTableWidgetItem(value)
+            if item["status"] == "SECURITY":
+                cell.setForeground(Qt.GlobalColor.red)
+            self.table.setItem(row, col, cell)
 
     @staticmethod
     def _prop(data, *keys):
@@ -367,7 +365,7 @@ class UserAreaTab(QWidget):
                         start_lba, sector_count = self.dump_segments[self.dump_segment_index]
                         self.emmc.dump_start(start_lba, sector_count, 512, True, 3)
                     except Exception as e:
-                        self.console.log(f"READ NEXT EXTENT ERROR: {e}")
+                        self.console.log(f"BACKUP NEXT EXTENT ERROR: {e}")
                         self.finish_read(False)
                 else:
                     self.finish_read(True)
@@ -417,24 +415,15 @@ class UserAreaTab(QWidget):
         if not p:
             return
         menu = QMenu(self)
-        read = menu.addAction("Backup")
-        verify = menu.addAction("Verify")
-        menu.addSeparator()
-        write = menu.addAction("Write")
-        write.setEnabled(False)
-        write.setToolTip("Write protocol is not implemented")
+        backup = menu.addAction("Backup")
         action = menu.exec(self.table.viewport().mapToGlobal(pos))
-        if action == read:
+        if action == backup:
             self.readPartition()
-        elif action == verify:
-            self.verifyPartition()
-        elif action == write:
-            self.writePartition()
 
     def readPartition(self):
         p = self.selectedPartition()
         if not p:
-            self.console.log("READ: select a partition first")
+            self.console.log("BACKUP: select a partition first")
             return
         if p["sectors"] <= 0 or p["start"] < 0:
             return
@@ -466,7 +455,7 @@ class UserAreaTab(QWidget):
             try:
                 self.emmc.dump_start(p["start"], p["sectors"], 512, True, 3, 0)
             except Exception as e:
-                self.console.log(f"METADATA READ ERROR: {e}")
+                self.console.log(f"METADATA BACKUP ERROR: {e}")
                 self.finish_read(False)
             return
 
@@ -525,7 +514,7 @@ class UserAreaTab(QWidget):
             self.dump_file.truncate(p["sectors"] * 512)
         except OSError as e:
             self.dump_file = None
-            self.console.log(f"READ FILE ERROR: {e}")
+            self.console.log(f"BACKUP FILE ERROR: {e}")
             return
 
         self.dump_expected = p["sectors"] * 512
@@ -543,7 +532,7 @@ class UserAreaTab(QWidget):
             start_lba, sector_count = self.dump_segments[0]
             self.emmc.dump_start(start_lba, sector_count, 512, True, 3)
         except Exception as e:
-            self.console.log(f"READ START ERROR: {e}")
+            self.console.log(f"BACKUP START ERROR: {e}")
             self.finish_read(False)
 
     def stopRead(self):
@@ -575,46 +564,9 @@ class UserAreaTab(QWidget):
         self.read.setEnabled(bool(self.partitions))
         if success and self.dump_received >= self.dump_expected:
             self._last_read_path = path
-            self.console.log(f"READ COMPLETE: {path}")
+            self.console.log(f"BACKUP COMPLETE: {path}")
         elif stopped:
-            self.console.log(f"READ STOPPED: partial file kept: {path}")
+            self.console.log(f"BACKUP STOPPED: partial file kept: {path}")
         elif path:
-            self.console.log(f"READ FAILED: {path}")
+            self.console.log(f"BACKUP FAILED: {path}")
 
-    def writePartition(self):
-        self.console.log("WRITE disabled: no eMMC write protocol is active")
-
-    def verifyPartition(self):
-        p = self.selectedPartition()
-        if not p or p["logical"]:
-            self.console.log("VERIFY: select a physical GPT partition")
-            return
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select reference image", "",
-            "Binary image (*.bin *.img);;All Files (*)"
-        )
-        if not path:
-            return
-        expected = p["sectors"] * 512
-        try:
-            import os
-            if os.path.getsize(path) != expected:
-                self.console.log(f"VERIFY SIZE ERROR: expected {expected} bytes")
-                return
-            with open(path, "rb") as f:
-                reference = f.read()
-            if not self._last_read_path:
-                self.console.log("VERIFY ERROR: no completed READ image")
-                return
-            with open(self._last_read_path, "rb") as f:
-                captured = f.read()
-            if captured == reference:
-                self.console.log(f"VERIFY OK: {p['name']}")
-                return
-            mismatch = next(
-                (i for i, (a, b) in enumerate(zip(captured, reference)) if a != b),
-                min(len(captured), len(reference))
-            )
-            self.console.log(f"VERIFY FAILED: {p['name']} first mismatch at byte 0x{mismatch:X}")
-        except OSError as e:
-            self.console.log(f"VERIFY FILE ERROR: {e}")
