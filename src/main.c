@@ -645,9 +645,44 @@ static bool send_gpt_result(void) {
     return true;
 }
 
+bool app_handle_gpt(void) {
+    signal_monitor_stop();
+    proto_emmc_stop_all();
+    uint16_t rca = 0u;
+    bool hc = false;
+    char msg[96] = {0};
+    if (!emmc_prepare_card_for_data(&rca, &hc, msg, sizeof(msg))) {
+        char out[192];
+        snprintf(out, sizeof(out),
+                 "{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"%s\"}\n",
+                 msg[0] ? msg : "eMMC data preparation failed");
+        app_send_text(out);
+        return false;
+    }
+    g_hc_addressing = hc;
+    return send_gpt_result();
+}
+
+static bool process_json_command(const char *cmd) {
+    if (!cmd || cmd[0] != '{') return false;
+    const char *p = strstr(cmd, "\"type\":\"");
+    if (!p) return false;
+    p += strlen("\"type\":\"");
+    char type[64];
+    size_t n = 0u;
+    while (p[n] && p[n] != '"' && n + 1u < sizeof(type)) n++;
+    if (p[n] != '"') return false;
+    memcpy(type, p, n);
+    type[n] = 0;
+    if (strncmp(type, "emmc.", 5) != 0) return false;
+    return proto_emmc_handle_text(type, cmd);
+}
+
 static void process_command(char *cmd) {
     cmd[strcspn(cmd, "\r\n")] = 0;
     if (strlen(cmd) == 0) return;
+
+    if (process_json_command(cmd)) return;
 
     if (strcmp(cmd, "INIT") == 0) {
         // If the diagnostic PWM monitor was running, release GPIO8 before
@@ -752,30 +787,9 @@ static void process_command(char *cmd) {
     }
 
     if (strcmp(cmd, "GPT") == 0) {
-        /*
-         * GPT is a synchronous metadata read. Prepare/select the card here,
-         * then let the existing GPT parser read LBA1 + partition entries.
-         * Do not route this through proto_emmc_handle_text(): that command
-         * does not own GPT and previously returned EMMC_UNSUPPORTED only
-         * after the GUI had already waited for the result.
-         */
-        signal_monitor_stop();
-        proto_emmc_stop_all();
-        uint16_t rca = 0u;
-        bool hc = false;
-        char msg[96] = {0};
-        if (!emmc_prepare_card_for_data(&rca, &hc, msg, sizeof(msg))) {
-            char out[192];
-            snprintf(out, sizeof(out),
-                     "{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"%s\"}\n",
-                     msg[0] ? msg : "eMMC data preparation failed");
-            app_send_text(out);
-            return;
-        }
-        g_hc_addressing = hc;
-        if (!send_gpt_result()) {
-            app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"GPT transmission failed\"}\n");
-        }
+        /* Legacy command kept for backward compatibility. New GUI code uses
+           the JSON emmc.gpt path above. */
+        (void)app_handle_gpt();
         return;
     }
 
