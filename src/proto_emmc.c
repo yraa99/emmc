@@ -1730,21 +1730,79 @@ void proto_emmc_stop_all(void) {
 
 static void emmc_identify_once(void) {
   emmc_id_data_t id;
-  status_led_set_busy(true);
-  char out[768];
+  uint8_t ext[EMMC_DUMP_BLOCK_SIZE];
+  char msg[96] = {0};
   char cid_hex[33];
   char csd_hex[33];
-  if (emmc_try_read_ids(&id)) {
+  char ext_hex[1025];
+  char out[1800];
+  uint32_t sec_count = 0u;
+  uint64_t capacity_bytes = 0ull;
+  uint8_t ext_rev = 0u;
+  uint8_t bus_width = 0u;
+  bool ext_ok = false;
+
+  status_led_set_busy(true);
+
+  /* Stage 1: CMD1 -> CMD2/CMD3/CMD9. This is the real identification path. */
+  if (!emmc_try_read_ids(&id)) {
+    snprintf(out, sizeof(out),
+             "{\"type\":\"emmc.identify.result\",\"ok\":false,\"stage\":\"CID_CSD\",\"msg\":\"%s\"}",
+             id.msg[0] ? id.msg : "ID read failed");
+    (void)app_send_text(out);
+    emmc_dbg(1, "IDENTIFY_RESULT_SENT");
+    status_led_set_busy(false);
+    if (g_emmc.tristate_default) emmc_apply_safe_io();
+    tud_task();
+    return;
+  }
+
+  /*
+   * Stage 2: EXT_CSD. This deliberately uses the existing full data-path
+   * preparation/read routine instead of returning a placeholder. Therefore
+   * IDENTIFY is only reported successful when CID, CSD and EXT_CSD were read.
+   */
+  ext_ok = emmc_read_ext_csd(ext, msg, sizeof(msg));
+  if (!ext_ok) {
     hex_bytes(id.cid, sizeof(id.cid), cid_hex, sizeof(cid_hex));
     hex_bytes(id.csd, sizeof(id.csd), csd_hex, sizeof(csd_hex));
     snprintf(out, sizeof(out),
-             "{\"type\":\"emmc.identify.result\",\"ok\":true,\"cid\":\"%s\",\"csd\":\"%s\",\"ocr\":%lu,\"rca\":%u}",
-             cid_hex, csd_hex, (unsigned long)id.ocr, (unsigned)id.rca);
-  } else {
-    snprintf(out, sizeof(out),
-             "{\"type\":\"emmc.identify.result\",\"ok\":false,\"msg\":\"%s\"}",
-             id.msg[0] ? id.msg : "ID read failed");
+             "{\"type\":\"emmc.identify.result\",\"ok\":false,\"stage\":\"EXT_CSD\","
+             "\"cid\":\"%s\",\"csd\":\"%s\",\"ocr\":%lu,\"rca\":%u,\"msg\":\"%s\"}",
+             cid_hex, csd_hex, (unsigned long)id.ocr, (unsigned)id.rca,
+             msg[0] ? msg : "EXT_CSD read failed");
+    (void)app_send_text(out);
+    emmc_dbg(1, "IDENTIFY_RESULT_SENT");
+    status_led_set_busy(false);
+    if (g_emmc.tristate_default) emmc_apply_safe_io();
+    tud_task();
+    return;
   }
+
+  hex_bytes(id.cid, sizeof(id.cid), cid_hex, sizeof(cid_hex));
+  hex_bytes(id.csd, sizeof(id.csd), csd_hex, sizeof(csd_hex));
+  hex_bytes(ext, sizeof(ext), ext_hex, sizeof(ext_hex));
+
+  /*
+   * EXT_CSD byte 212..215 is SEC_COUNT (little-endian) and byte 183 is the
+   * current BUS_WIDTH mode. These are standard EXT_CSD fields.
+   */
+  sec_count = rd_le32(&ext[212]);
+  capacity_bytes = (uint64_t)sec_count * 512ull;
+  ext_rev = ext[192];
+  bus_width = ext[183];
+
+  snprintf(out, sizeof(out),
+           "{\"type\":\"emmc.identify.result\",\"ok\":true,"
+           "\"cid\":\"%s\",\"csd\":\"%s\",\"ext_csd\":\"%s\","
+           "\"ocr\":%lu,\"rca\":%u,\"capacity_bytes\":%llu,"
+           "\"sector_size\":512,\"ext_csd_rev\":%u,\"bus_width_mode\":%u,"
+           "\"clock_hz\":200000}",
+           cid_hex, csd_hex, ext_hex,
+           (unsigned long)id.ocr, (unsigned)id.rca,
+           (unsigned long long)capacity_bytes,
+           (unsigned)ext_rev, (unsigned)bus_width);
+
   bool sent = app_send_text(out);
   emmc_dbg(1, sent ? "IDENTIFY_RESULT_SENT" : "IDENTIFY_RESULT_SEND_FAILED");
   tud_task();
