@@ -111,9 +111,7 @@ class IdentifyTab(QWidget):
                 self.set_value("BUILD.PROP", "OK")
                 self.console.log("BUILD.PROP : OK")
                 if self.buildprop_lines:
-                    self.console.log("BUILD.PROP CONTENT:")
-                    for line in "".join(self.buildprop_lines).splitlines():
-                        self.console.log(line)
+                    self._log_system_summary("".join(self.buildprop_lines))
             else:
                 self.set_value("BUILD.PROP", "FAILED")
                 self.console.log("BUILD.PROP : FAILED - " + str(obj.get("msg", "unknown error")))
@@ -174,6 +172,32 @@ class IdentifyTab(QWidget):
                 self.console.log(f"{key.text():16} : {value.text() if value else '-'}")
         self.console.log("IDENTIFY OK")
         self.finish()
+
+    def _log_system_summary(self, data):
+        props = {}
+        for line in data.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            props[key.strip()] = value.strip()
+        fields = (
+            ("Brand", "ro.product.brand", "ro.product.system.brand"),
+            ("Model", "ro.product.model", "ro.product.system.model"),
+            ("Product", "ro.product.device", "ro.product.name", "ro.product.system.name"),
+            ("Android", "ro.build.version.release", "ro.build.version.release_or_codename"),
+            ("SDK", "ro.build.version.sdk"),
+            ("Build ID", "ro.build.id", "ro.system.build.id"),
+            ("Platform", "ro.board.platform", "ro.hardware"),
+            ("Security Patch", "ro.build.version.security_patch", "ro.vendor.build.security_patch"),
+            ("Fingerprint", "ro.build.fingerprint", "ro.system.build.fingerprint"),
+        )
+        self.console.log("SYSTEM INFO (build.prop summary only)")
+        for label, *names in fields:
+            value = next((props[n] for n in names if props.get(n)), "")
+            if value:
+                self.console.log(f"{label}: {value}")
+        self.console.log("IMEI / device SN / Wi-Fi MAC: read from identity/security sources, not full build.prop")
 
     def set_value(self, field, value):
         for r in range(self.table.rowCount()):
