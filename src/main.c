@@ -237,6 +237,12 @@ typedef struct {
 
 static buildprop_candidate_t g_buildprop_candidates[GPT_BUILDPROP_MAX_CANDIDATES];
 static uint32_t g_buildprop_candidate_count = 0u;
+static uint8_t g_ext4_block[GPT_BUILDPROP_MAX_BLOCK];
+static uint8_t g_ext4_gdt[GPT_BUILDPROP_MAX_BLOCK];
+static uint8_t g_ext4_sbraw[GPT_BUILDPROP_MAX_BLOCK];
+static uint8_t g_ext4_root_inode[512];
+static uint8_t g_ext4_file_inode[512];
+static uint8_t g_buildprop_data[GPT_BUILDPROP_MAX_BYTES + 1u];
 
 static uint16_t ext4_le16(const uint8_t *p) {
     return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
@@ -304,35 +310,30 @@ static bool ext4_read_inode(uint32_t part_start, uint32_t part_sectors, bool hc,
     uint32_t group = (inode_no - 1u) / inodes_per_group;
     uint32_t index = (inode_no - 1u) % inodes_per_group;
     uint32_t gdt_block = (block_size == 1024u) ? 2u : 1u;
-    uint8_t gdt[GPT_BUILDPROP_MAX_BLOCK];
-    if (!ext4_read_block(part_start, part_sectors, hc, gdt_block, block_size, gdt)) return false;
+    if (!ext4_read_block(part_start, part_sectors, hc, gdt_block, block_size, g_ext4_gdt)) return false;
     uint64_t gd_off = (uint64_t)group * desc_size;
     if (gd_off + 32u > block_size) return false;
-    const uint8_t *gd = &gdt[gd_off];
+    const uint8_t *gd = &g_ext4_gdt[gd_off];
     uint64_t inode_table = ext4_le32(&gd[8]);
     if (desc_size >= 64u) inode_table |= (uint64_t)ext4_le32(&gd[40]) << 32;
     uint64_t byte_off = (uint64_t)index * inode_size;
     uint32_t fs_block = (uint32_t)(inode_table + byte_off / block_size);
     uint32_t in_block = (uint32_t)(byte_off % block_size);
     if (in_block + inode_size > block_size) return false;
-    uint8_t block[GPT_BUILDPROP_MAX_BLOCK];
-    if (!ext4_read_block(part_start, part_sectors, hc, fs_block, block_size, block)) return false;
-    memcpy(inode_out, block + in_block, inode_size);
+    if (!ext4_read_block(part_start, part_sectors, hc, fs_block, block_size, g_ext4_block)) return false;
+    memcpy(inode_out, g_ext4_block + in_block, inode_size);
     return true;
 }
 
 static bool ext4_find_root_file(uint32_t part_start, uint32_t part_sectors, bool hc,
-                                uint32_t block_size, const uint8_t root_inode[512],
+                                uint32_t block_size, const uint8_t g_ext4_root_inode[512],
                                 const char *wanted, uint32_t *out_inode) {
-    uint64_t size = (uint64_t)ext4_le32(&root_inode[4]);
-    if (root_inode[32] & 0x80u) return false; /* EXT4_INDEX_FL: handled only through leaf blocks below */
-    bool extents = (ext4_le32(&root_inode[32]) & 0x80000u) != 0u;
+    uint64_t size = (uint64_t)ext4_le32(&g_ext4_root_inode[4]);
+    bool extents = (ext4_le32(&g_ext4_root_inode[32]) & 0x80000u) != 0u;
     uint32_t blocks_needed = (uint32_t)((size + block_size - 1u) / block_size);
     if (blocks_needed > 32u) blocks_needed = 32u;
-    uint8_t block[GPT_BUILDPROP_MAX_BLOCK];
-
     if (extents) {
-        const uint8_t *ib = &root_inode[40];
+        const uint8_t *ib = &g_ext4_root_inode[40];
         if (ext4_le16(ib) != 0xF30Au || ext4_le16(&ib[6]) != 0u) return false;
         uint16_t entries = ext4_le16(&ib[2]);
         if (entries > 4u) entries = 4u;
@@ -343,13 +344,13 @@ static bool ext4_find_root_file(uint32_t part_start, uint32_t part_sectors, bool
             if (len > 32768u) len = (uint16_t)(len - 32768u);
             uint64_t physical = ext4_le48(&e[8], &e[6]);
             for (uint16_t j = 0u; j < len && logical + j < blocks_needed; ++j) {
-                if (!ext4_read_block(part_start, part_sectors, hc, (uint32_t)(physical + j), block_size, block)) return false;
+                if (!ext4_read_block(part_start, part_sectors, hc, (uint32_t)(physical + j), block_size, g_ext4_block)) return false;
                 for (uint32_t off = 0u; off + 8u <= block_size; ) {
-                    uint32_t ino = ext4_le32(&block[off]);
-                    uint16_t rec = ext4_le16(&block[off + 4u]);
-                    uint8_t nlen = block[off + 6u];
+                    uint32_t ino = ext4_le32(&g_ext4_block[off]);
+                    uint16_t rec = ext4_le16(&g_ext4_block[off + 4u]);
+                    uint8_t nlen = g_ext4_block[off + 6u];
                     if (rec < 8u || off + rec > block_size) break;
-                    if (ino && nlen == strlen(wanted) && memcmp(&block[off + 8u], wanted, nlen) == 0) {
+                    if (ino && nlen == strlen(wanted) && memcmp(&g_ext4_block[off + 8u], wanted, nlen) == 0) {
                         *out_inode = ino;
                         return true;
                     }
@@ -360,15 +361,16 @@ static bool ext4_find_root_file(uint32_t part_start, uint32_t part_sectors, bool
         return false;
     }
 
+    if (blocks_needed > 12u) blocks_needed = 12u;
     for (uint32_t i = 0u; i < blocks_needed; ++i) {
-        uint32_t phys = ext4_le32(&root_inode[40u + i * 4u]);
-        if (!phys || !ext4_read_block(part_start, part_sectors, hc, phys, block_size, block)) continue;
+        uint32_t phys = ext4_le32(&g_ext4_root_inode[40u + i * 4u]);
+        if (!phys || !ext4_read_block(part_start, part_sectors, hc, phys, block_size, g_ext4_block)) continue;
         for (uint32_t off = 0u; off + 8u <= block_size; ) {
-            uint32_t ino = ext4_le32(&block[off]);
-            uint16_t rec = ext4_le16(&block[off + 4u]);
-            uint8_t nlen = block[off + 6u];
+            uint32_t ino = ext4_le32(&g_ext4_block[off]);
+            uint16_t rec = ext4_le16(&g_ext4_block[off + 4u]);
+            uint8_t nlen = g_ext4_block[off + 6u];
             if (rec < 8u || off + rec > block_size) break;
-            if (ino && nlen == strlen(wanted) && memcmp(&block[off + 8u], wanted, nlen) == 0) {
+            if (ino && nlen == strlen(wanted) && memcmp(&g_ext4_block[off + 8u], wanted, nlen) == 0) {
                 *out_inode = ino;
                 return true;
             }
@@ -410,24 +412,16 @@ static bool json_send_buildprop_chunk(const char *data, size_t len) {
 
 static bool ext4_read_buildprop(uint32_t part_start, uint32_t part_sectors, bool hc,
                                 char *out_data, size_t out_len, size_t *out_size, char *msg, size_t msg_len) {
-    uint8_t sb[GPT_BUILDPROP_MAX_BLOCK];
-    uint8_t root_inode[512];
-    uint8_t file_inode[512];
-    if (!ext4_read_block(part_start, part_sectors, hc, 0u, 1024u, sb)) {
-        snprintf(msg, msg_len, "filesystem superblock read failed"); return false;
-    }
-    /* Superblock starts at byte offset 1024, i.e. the beginning of fs block 1 for 1K,
-       and offset 1024 inside block 0 for larger filesystems. Read from partition LBA+2. */
-    uint8_t sbraw[4096];
-    memset(sbraw, 0, sizeof(sbraw));
+    /* Superblock starts at byte offset 1024 from the filesystem start. */
+    memset(g_ext4_sbraw, 0, sizeof(g_ext4_sbraw));
     uint32_t sectors = (part_sectors >= 8u) ? 8u : part_sectors;
     char rmsg[96];
     for (uint32_t i = 0u; i < sectors; ++i) {
-        if (!emmc_read_block(part_start + 2u + i, hc, sbraw + i * 512u, rmsg, sizeof(rmsg))) {
+        if (!emmc_read_block(part_start + 2u + i, hc, g_ext4_sbraw + i * 512u, rmsg, sizeof(rmsg))) {
             snprintf(msg, msg_len, "filesystem superblock read failed"); return false;
         }
     }
-    const uint8_t *s = &sbraw[0];
+    const uint8_t *s = &g_ext4_sbraw[0];
     uint16_t magic = ext4_le16(&s[56]);
     if (magic != 0xEF53u) { snprintf(msg, msg_len, "not EXT filesystem"); return false; }
     uint32_t log_bs = ext4_le32(&s[24]);
@@ -441,29 +435,29 @@ static bool ext4_read_buildprop(uint32_t part_start, uint32_t part_sectors, bool
         inodes_per_group == 0u) { snprintf(msg, msg_len, "invalid EXT4 geometry"); return false; }
 
     if (!ext4_read_inode(part_start, part_sectors, hc, block_size, inode_size,
-                         inodes_per_group, desc_size, 2u, root_inode, sizeof(root_inode))) {
+                         inodes_per_group, desc_size, 2u, g_ext4_root_inode, sizeof(g_ext4_root_inode))) {
         snprintf(msg, msg_len, "root inode read failed"); return false;
     }
     uint32_t build_inode = 0u;
-    if (!ext4_find_root_file(part_start, part_sectors, hc, block_size, root_inode, "build.prop", &build_inode)) {
+    if (!ext4_find_root_file(part_start, part_sectors, hc, block_size, g_ext4_root_inode, "build.prop", &build_inode)) {
         snprintf(msg, msg_len, "build.prop not found in filesystem root"); return false;
     }
     if (!ext4_read_inode(part_start, part_sectors, hc, block_size, inode_size,
-                         inodes_per_group, desc_size, build_inode, file_inode, sizeof(file_inode))) {
+                         inodes_per_group, desc_size, build_inode, g_ext4_file_inode, sizeof(g_ext4_file_inode))) {
         snprintf(msg, msg_len, "build.prop inode read failed"); return false;
     }
-    uint64_t file_size = (uint64_t)ext4_le32(&file_inode[4]);
+    uint64_t file_size = (uint64_t)ext4_le32(&g_ext4_file_inode[4]);
     if (file_size > GPT_BUILDPROP_MAX_BYTES) file_size = GPT_BUILDPROP_MAX_BYTES;
     if (file_size == 0u) { *out_size = 0u; return true; }
 
-    bool extents = (ext4_le32(&file_inode[32]) & 0x80000u) != 0u;
+    bool extents = (ext4_le32(&g_ext4_file_inode[32]) & 0x80000u) != 0u;
     size_t produced = 0u;
     uint32_t blocks = (uint32_t)((file_size + block_size - 1u) / block_size);
     if (blocks > 32u) blocks = 32u;
-    uint8_t block[GPT_BUILDPROP_MAX_BLOCK];
+    uint8_t g_ext4_block[GPT_BUILDPROP_MAX_BLOCK];
 
     if (extents) {
-        const uint8_t *ib = &file_inode[40];
+        const uint8_t *ib = &g_ext4_file_inode[40];
         if (ext4_le16(ib) != 0xF30Au || ext4_le16(&ib[6]) != 0u) {
             snprintf(msg, msg_len, "build.prop uses unsupported extent depth"); return false;
         }
@@ -477,7 +471,7 @@ static bool ext4_read_buildprop(uint32_t part_start, uint32_t part_sectors, bool
             uint64_t physical = ext4_le48(&e[8], &e[6]);
             if (logical >= blocks) continue;
             for (uint16_t j = 0u; j < len && logical + j < blocks && produced < file_size; ++j) {
-                if (!ext4_read_block(part_start, part_sectors, hc, (uint32_t)(physical + j), block_size, block)) {
+                if (!ext4_read_block(part_start, part_sectors, hc, (uint32_t)(physical + j), block_size, g_ext4_block)) {
                     snprintf(msg, msg_len, "build.prop data read failed"); return false;
                 }
                 size_t take = block_size;
@@ -489,8 +483,8 @@ static bool ext4_read_buildprop(uint32_t part_start, uint32_t part_sectors, bool
         }
     } else {
         for (uint32_t i = 0u; i < blocks && produced < file_size && i < 12u; ++i) {
-            uint32_t phys = ext4_le32(&file_inode[40u + i * 4u]);
-            if (!phys || !ext4_read_block(part_start, part_sectors, hc, phys, block_size, block)) {
+            uint32_t phys = ext4_le32(&g_ext4_file_inode[40u + i * 4u]);
+            if (!phys || !ext4_read_block(part_start, part_sectors, hc, phys, block_size, g_ext4_block)) {
                 snprintf(msg, msg_len, "build.prop data block read failed"); return false;
             }
             size_t take = block_size;
@@ -505,44 +499,41 @@ static bool ext4_read_buildprop(uint32_t part_start, uint32_t part_sectors, bool
     return true;
 }
 
-static bool send_buildprop_for_candidate(const buildprop_candidate_t *candidate, bool hc) {
-    char data[GPT_BUILDPROP_MAX_BYTES + 1u];
+static int send_buildprop_for_candidate(const buildprop_candidate_t *candidate, bool hc) {
+    char *data = (char *)g_buildprop_data;
     char msg[128];
     size_t size = 0u;
     char begin[160];
     snprintf(begin, sizeof(begin), "{\"type\":\"emmc.buildprop.begin\",\"partition\":\"%s\"}\n", candidate->name);
-    if (!app_send_text(begin)) return false;
+    if (!app_send_text(begin)) return -1;
     if (!ext4_read_buildprop(candidate->start_lba, candidate->sectors, hc, data, GPT_BUILDPROP_MAX_BYTES, &size, msg, sizeof(msg))) {
         char out[320];
         snprintf(out, sizeof(out), "{\"type\":\"emmc.buildprop.result\",\"ok\":false,\"partition\":\"%s\",\"msg\":\"%s\"}\n", candidate->name, msg);
-        app_send_text(out);
-        return true;
+        if (!app_send_text(out)) return -1;
+        return 0;
     }
     data[size] = 0;
     size_t pos = 0u;
     while (pos < size) {
         size_t chunk = size - pos;
         if (chunk > 500u) chunk = 500u;
-        if (!json_send_buildprop_chunk(data + pos, chunk)) return false;
+        if (!json_send_buildprop_chunk(data + pos, chunk)) return -1;
         pos += chunk;
     }
     char out[256];
     snprintf(out, sizeof(out), "{\"type\":\"emmc.buildprop.result\",\"ok\":true,\"partition\":\"%s\",\"bytes\":%lu}\n",
              candidate->name, (unsigned long)size);
-    return app_send_text(out);
+    if (!app_send_text(out)) return -1;
+    return 1;
 }
 
 static void scan_buildprop_after_gpt(bool hc) {
     bool found = false;
     app_send_text("{\"type\":\"emmc.buildprop.scan\",\"state\":\"start\"}\n");
     for (uint32_t i = 0u; i < g_buildprop_candidate_count; ++i) {
-        if (send_buildprop_for_candidate(&g_buildprop_candidates[i], hc)) {
-            char probe[128];
-            /* A successful result is identified by a second lightweight probe in the
-               current text stream; keep the transport deterministic and stop after the
-               first candidate whose filesystem read succeeded. */
-            (void)probe;
-        }
+        int rc = send_buildprop_for_candidate(&g_buildprop_candidates[i], hc);
+        if (rc < 0) return;
+        if (rc > 0) { found = true; break; }
     }
     app_send_text(found
         ? "{\"type\":\"emmc.buildprop.end\",\"ok\":true}\n"
