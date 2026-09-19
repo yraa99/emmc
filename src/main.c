@@ -886,6 +886,8 @@ static bool send_gpt_result(void) {
     uint32_t valid_partitions = 0u;
     g_buildprop_candidate_count = 0u;
     gpt_has_super_partition = false;
+    g_super_start_lba = 0u;
+    g_super_sectors = 0u;
     if (header_size < 92u || header_size > 512u || entry_size < 128u || entry_size > 512u || entry_count == 0u) {
         return app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"Invalid GPT header\"}\n");
     }
@@ -939,7 +941,13 @@ static bool send_gpt_result(void) {
                    (unsigned long)i, name, (unsigned long long)first, (unsigned long long)last,
                    (unsigned long long)(last - first + 1ull));
         if (!app_send_text(out)) return false;
-        if (strcmp(name, "super") == 0) gpt_has_super_partition = true;
+        if (strcmp(name, "super") == 0) {
+            gpt_has_super_partition = true;
+            if (first <= UINT32_MAX && (last - first + 1ull) <= UINT32_MAX) {
+                g_super_start_lba = (uint32_t)first;
+                g_super_sectors = (uint32_t)(last - first + 1ull);
+            }
+        }
         buildprop_add_candidate(name, first, last - first + 1ull);
         valid_partitions++;
     }
