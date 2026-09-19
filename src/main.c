@@ -1143,7 +1143,7 @@ static void gpt_utf16_name(const uint8_t *src, char *dst, size_t dst_len) {
     dst[o] = '\0';
 }
 
-static bool send_gpt_result(void) {
+static bool send_gpt_result(bool include_buildprop) {
     uint8_t hdr[512];
     char msg[96];
     if (!emmc_read_block(1u, g_hc_addressing, hdr, msg, sizeof(msg))) {
@@ -1234,11 +1234,15 @@ static bool send_gpt_result(void) {
              "{\"type\":\"emmc.gpt.end\",\"ok\":true,\"partitions\":%lu,\"entries_lba\":%llu}\n",
              (unsigned long)valid_partitions, (unsigned long long)entries_lba);
     if (!app_send_text(out)) return false;
-    scan_buildprop_after_gpt(g_hc_addressing);
+    if (include_buildprop) {
+        scan_buildprop_after_gpt(g_hc_addressing);
+    } else {
+        app_send_text("{\"type\":\"emmc.buildprop.end\",\"ok\":false,\"skipped\":true,\"msg\":\"build.prop scan skipped for this GPT operation\"}\n");
+    }
     return true;
 }
 
-bool app_handle_gpt(void) {
+bool app_handle_gpt(bool include_buildprop) {
     signal_monitor_stop();
     proto_emmc_stop_all();
     uint16_t rca = 0u;
@@ -1253,7 +1257,7 @@ bool app_handle_gpt(void) {
         return false;
     }
     g_hc_addressing = hc;
-    return send_gpt_result();
+    return send_gpt_result(include_buildprop);
 }
 
 static bool process_json_command(const char *cmd) {
@@ -1383,7 +1387,7 @@ static void process_command(char *cmd) {
     if (strcmp(cmd, "GPT") == 0) {
         /* Legacy command kept for backward compatibility. New GUI code uses
            the JSON emmc.gpt path above. */
-        (void)app_handle_gpt();
+        (void)app_handle_gpt(true);
         return;
     }
 
