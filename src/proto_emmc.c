@@ -1488,16 +1488,23 @@ static bool send_layout_result(void) {
 
 static bool emmc_switch_partition(uint16_t rca, uint8_t partition, char *msg, size_t msg_len) {
   uint8_t r1[6];
+  uint8_t ext[EMMC_DUMP_BLOCK_SIZE];
   uint32_t arg;
   uint32_t i;
   uint32_t deadline;
+  uint8_t current_cfg = 0u;
   if (partition > 2u) {
     if (msg && msg_len) snprintf(msg, msg_len, "Invalid eMMC partition %u", (unsigned)partition);
     return false;
   }
-  /* EXT_CSD[179] PARTITION_CONFIG: keep ACK/boot settings, change only PARTITION_ACCESS [2:0].
-     CMD6 access=3 (write byte), index=179, value=current config with selected access. */
-  arg = (3u << 24u) | (179u << 16u) | (partition & 0x07u);
+  /* Read the current PARTITION_CONFIG first. Never overwrite BOOT_ACK,
+     BOOT_PARTITION_ENABLE or BOOT_BUS_WIDTH bits while changing only
+     PARTITION_ACCESS [2:0]. */
+  if (!emmc_read_ext_csd(ext, msg, msg_len)) return false;
+  current_cfg = ext[179];
+  current_cfg = (uint8_t)((current_cfg & 0xF8u) | (partition & 0x07u));
+  /* CMD6 access=3 (write byte), index=179, value=current config. */
+  arg = (3u << 24u) | (179u << 16u) | ((uint32_t)current_cfg << 8u);
   for (i = 0; i < EMMC_CMDX_RETRIES; i++) {
     if (emmc_send_cmd_raw(6u, arg, 48u, r1, sizeof(r1))) break;
     emmc_send_retry_idle();
