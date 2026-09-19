@@ -334,11 +334,22 @@ static void buildprop_add_logical_candidate(const char *name,
     c->start_lba = (uint32_t)(g_super_start_lba + extents[0].start_sector);
     c->sectors = (uint32_t)total;
     {
-        char out[256];
-        snprintf(out, sizeof(out),
-                 "{\"type\":\"emmc.lp.partition\",\"name\":\"%s\",\"start_lba\":%lu,\"sectors\":%lu,\"extents\":%lu}\n",
-                 c->name, (unsigned long)c->start_lba, (unsigned long)c->sectors,
-                 (unsigned long)c->extent_count);
+        char out[1024];
+        size_t pos = 0u;
+        pos += (size_t)snprintf(out + pos, sizeof(out) - pos,
+                                "{\"type\":\"emmc.lp.partition\","
+                                "\"name\":\"%s\",\"start_lba\":%lu,"
+                                "\"sectors\":%lu,\"extents\":[",
+                                c->name, (unsigned long)c->start_lba,
+                                (unsigned long)c->sectors);
+        for (uint32_t i = 0u; i < c->extent_count && pos + 80u < sizeof(out); ++i) {
+            pos += (size_t)snprintf(out + pos, sizeof(out) - pos,
+                                    "%s{\"start\":%llu,\"sectors\":%llu}",
+                                    i ? "," : "",
+                                    (unsigned long long)c->extents[i].start_sector,
+                                    (unsigned long long)c->extents[i].sectors);
+        }
+        snprintf(out + pos, sizeof(out) - pos, "]}\n");
         app_send_text(out);
     }
 }
