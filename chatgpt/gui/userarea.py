@@ -183,7 +183,8 @@ class UserAreaTab(QWidget):
         else:
             size_text = f"{size / 1024:.2f} KB"
         location = "SUPER" if logical else "USER"
-        end_lba = int(start) + int(sectors) - 1\n        values = (name, str(start), str(end_lba), str(sectors), size_text, ptype, location)
+        end_lba = int(start) + int(sectors) - 1
+        values = (name, str(start), str(end_lba), str(sectors), size_text, ptype, location)
         for col, value in enumerate(values):
             cell = QTableWidgetItem(value)
             if item["status"] == "SECURITY":
