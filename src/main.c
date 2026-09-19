@@ -522,20 +522,15 @@ static bool ext4_scan_htree_node(const buildprop_candidate_t *candidate, bool hc
         return ext4_scan_dir_block_for_name(g_ext4_block, block_size, wanted, out_inode);
     }
 
-    /* A non-root dx_node starts with dx_countlimit:
-       limit @ +0, count @ +2, followed by dx_entry records at +8.
-       The previous parser used the root offsets here (+0x0A/+0x12),
-       which caused HTree leaf selection to skip/corrupt entries. */
-    uint16_t count = ext4_le16(&g_ext4_block[2u]);
-    uint16_t limit = ext4_le16(&g_ext4_block[0u]);
-    if (count == 0u || limit == 0u || count > limit) return false;
-    uint16_t max_entries = (uint16_t)((block_size - 8u) / 8u);
-    uint16_t entries = count;
+    uint16_t count = ext4_le16(&g_ext4_block[10]);
+    if (count < 2u) return false;
+    uint16_t entries = (uint16_t)(count - 1u);
+    uint16_t max_entries = (uint16_t)((block_size - 0x12u) / 8u);
     if (entries > max_entries) entries = max_entries;
-    if (entries > 340u) entries = 340u;
     uint32_t children[340];
+    if (entries > 340u) entries = 340u;
     for (uint16_t i = 0u; i < entries; ++i) {
-        children[i] = ext4_le32(&g_ext4_block[8u + i * 8u + 4u]);
+        children[i] = ext4_le32(&g_ext4_block[0x12u + i * 8u + 4u]);
     }
     for (uint16_t i = 0u; i < entries; ++i) {
         if (children[i] &&
@@ -561,16 +556,11 @@ static bool ext4_scan_directory_for_name(const buildprop_candidate_t *candidate,
         uint32_t root_phys = 0u;
         if (ext4_inode_data_block(candidate, hc, dir_inode, block_size, 0u, &root_phys) &&
             ext4_read_block(candidate, hc, root_phys, block_size, g_ext4_block)) {
-            /* ext4_dx_root layout: dx_root_info starts at 0x18,
-               indirect_levels is 0x1E; dx_countlimit is 0x20 and
-               dx_entry[0] starts at 0x28. Include the first entry: it is
-               a real leaf pointer, not metadata to be discarded. */
             uint8_t indirect_levels = g_ext4_block[0x1Eu];
-            uint16_t limit = ext4_le16(&g_ext4_block[0x20u]);
             uint16_t count = ext4_le16(&g_ext4_block[0x22u]);
             uint16_t max_entries = (uint16_t)((block_size - 0x28u) / 8u);
-            if (indirect_levels <= 3u && limit != 0u && count != 0u && count <= limit) {
-                uint16_t entries = count;
+            if (indirect_levels <= 3u && count >= 2u) {
+                uint16_t entries = (uint16_t)(count - 1u);
                 if (entries > max_entries) entries = max_entries;
                 if (entries > 340u) entries = 340u;
                 uint32_t children[340];
@@ -728,22 +718,10 @@ static bool scan_dynamic_super_candidates(const buildprop_candidate_t *super_can
 
     app_send_text("{\"type\":\"emmc.lp.begin\",\"ok\":true}\n");
 
-    /* Inspect every metadata slot advertised by the LP geometry. A/B devices
-       normally expose two slots, but recovery/custom layouts can expose more.
-       Parsing the advertised count avoids silently ignoring a valid slot. */
-    uint8_t geom[512];
-    uint32_t slot_count = 0u;
-    if (super_read_bytes(super_candidate->start_lba, super_candidate->sectors, hc,
-                         4096u, sizeof(geom), geom) &&
-        ext4_le32(geom) == 0x616C4467u &&
-        ext4_le32(&geom[4]) >= 52u && ext4_le32(&geom[4]) <= 4096u) {
-        slot_count = ext4_le32(&geom[44]);
-    }
-    if (slot_count == 0u) slot_count = 2u;
-    if (slot_count > 8u) slot_count = 8u;
-    for (uint32_t slot = 0u; slot < slot_count; ++slot) {
-        parsed |= lp_parse_slot(super_candidate, hc, slot);
-    }
+    /* Slot 0 and slot 1 are both inspected. liblp uses slot-specific metadata
+       and applies _a/_b to partitions carrying LP_PARTITION_ATTR_SLOT_SUFFIXED. */
+    parsed |= lp_parse_slot(super_candidate, hc, 0u);
+    parsed |= lp_parse_slot(super_candidate, hc, 1u);
 
     if (parsed && g_buildprop_candidate_count > before) {
         char out[192];
