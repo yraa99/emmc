@@ -100,3 +100,24 @@ class Protocol:
 
     def erase(self, start, count):
         self.send_command(f"ERASE {start} {count}")
+
+
+    def special_task(self, task):
+        import json
+        self.send_command(json.dumps({"type": "emmc.special", "task": str(task)}, separators=(",", ":")))
+
+    def setboot_read(self):
+        import json
+        self.send_command(json.dumps({"type": "emmc.setboot.read"}, separators=(",", ":")))
+
+    def setboot_write(self, boot_partition=0, bus_width=2, reset=0, boot_mode=0, ack=0):
+        import json
+        payload = {
+            "type": "emmc.setboot.write",
+            "boot_partition": int(boot_partition),
+            "bus_width": int(bus_width),
+            "reset": int(reset),
+            "boot_mode": int(boot_mode),
+            "ack": int(ack),
+        }
+        self.send_command(json.dumps(payload, separators=(",", ":")))
