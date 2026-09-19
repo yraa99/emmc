@@ -30,6 +30,8 @@ class SpecialTaskTab(QWidget):
         "md_sec", "oeminfo", "factory", "devinfo", "oppostanvbk",
         "oppodycnvbk", "oppo_custom", "opporeserve", "asuskey",
         "board_info", "secure_storage", "secure", "certification",
+        "frp", "keymaster", "keystore", "tee", "trustzone", "tz",
+        "secdata", "storsec", "persistbak", "widevine", "drm",
     )
 
     def __init__(self, emmc, console):
