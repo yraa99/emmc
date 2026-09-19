@@ -79,8 +79,9 @@ class SpecialTaskTab(QWidget):
 
     def select_task(self, index, execute=False):
         if 0 <= index < self.task_combo.count():
+            changed = self.task_combo.currentIndex() != index
             self.task_combo.setCurrentIndex(index)
-            if execute:
+            if execute and not changed:
                 self.execute_task(index)
 
     def _selection_changed(self, index):
