@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-    QPushButton, QAbstractItemView, QFileDialog, QMenu, QSizePolicy, QHeaderView
+    QPushButton, QAbstractItemView, QFileDialog, QMenu, QSizePolicy, QHeaderView,
+    QComboBox, QLineEdit
 )
 from PyQt6.QtCore import QTimer, Qt
 import os
