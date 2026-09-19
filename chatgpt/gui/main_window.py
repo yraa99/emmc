@@ -948,7 +948,6 @@ class MainWindow(QMainWindow):
             return
         self.identify_sequence = True
         self.tabs.setCurrentWidget(self.identify)
-        self.console.log("Reading eMMC identify ...")
         try:
             self.emmc.identify()
             self.operation_label.setText("Reading eMMC identification...")
@@ -989,7 +988,6 @@ class MainWindow(QMainWindow):
             if self.identify_sequence:
                 self.identify_sequence = False
                 if obj.get("ok", False):
-                    self.console.log("IDENTIFY OK - reading GPT ...")
                     self.main_gpt()
                 else:
                     self.console.log("IDENTIFY failed - GPT not started")
