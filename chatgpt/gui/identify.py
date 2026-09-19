@@ -103,7 +103,7 @@ class IdentifyTab(QWidget):
             prv = b[9]
             psn = int.from_bytes(b[10:14], "big")
             mdt = b[14]
-            year = 2010 + ((mdt >> 4) & 0x0F)
+            year = 1997 + ((mdt >> 4) & 0x0F)
             month = mdt & 0x0F
             cbx_names = {0: "Card", 1: "BGA", 2: "POP", 3: "Reserved"}
             manufacturers = {
