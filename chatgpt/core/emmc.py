@@ -59,8 +59,8 @@ class EMMC:
     def layout(self):
         self.protocol.layout()
 
-    def dump_start(self, start_lba, block_count, chunk_bytes=512, use_pio=True, auto_retries=3):
-        self.protocol.dump_start(start_lba, block_count, chunk_bytes, use_pio, auto_retries)
+    def dump_start(self, start_lba, block_count, chunk_bytes=512, use_pio=True, auto_retries=3, partition=0):
+        self.protocol.dump_start(start_lba, block_count, chunk_bytes, use_pio, auto_retries, partition)
 
     def dump_stop(self):
         self.protocol.dump_stop()
