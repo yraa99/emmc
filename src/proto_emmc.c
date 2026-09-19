@@ -1608,6 +1608,7 @@ static bool emmc_send_extcsd_special(const char *task) {
     snprintf(out, sizeof(out),
              "{\"type\":\"emmc.special.result\",\"ok\":false,\"task\":\"%s\",\"msg\":\"%s\"}",
              task, msg[0] ? msg : "EXT_CSD read failed");
+    strncat(out, "\n", sizeof(out) - strlen(out) - 1u);
     return app_send_text(out);
   }
 
@@ -1640,6 +1641,7 @@ static bool emmc_send_extcsd_special(const char *task) {
              "{\"type\":\"emmc.special.result\",\"ok\":false,\"task\":\"%s\","
              "\"msg\":\"unsupported special task\"}", task);
   }
+  strncat(out, "\n", sizeof(out) - strlen(out) - 1u);
   return app_send_text(out);
 }
 
