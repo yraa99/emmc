@@ -1473,7 +1473,7 @@ static bool send_layout_result(void) {
            "\"partition_config\":%lu,\"partitioning_support\":%lu,"
            "\"hc_erase_grp_size\":%lu,\"hc_wp_grp_size\":%lu,\"gp_unit_bytes\":%llu,"
            "\"gp1_mult\":%lu,\"gp2_mult\":%lu,\"gp3_mult\":%lu,\"gp4_mult\":%lu,"
-           "\"gp1_bytes\":%llu,\"gp2_bytes\":%llu,\"gp3_bytes\":%llu,\"gp4_bytes\":%llu}",
+           "\"gp1_bytes\":%llu,\"gp2_bytes\":%llu,\"gp3_bytes\":%llu,\"gp4_bytes\":%llu,\"ext_csd_hex\":\"%s\"}",
            (unsigned long)sec_count, (unsigned long long)user_bytes,
            (unsigned long)boot_size_mult, (unsigned long)boot_bytes_each,
            (unsigned long)part_cfg, (unsigned long)part_sup,
