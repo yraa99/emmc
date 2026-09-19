@@ -1,0 +1,15 @@
+# Python generated files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local build output
+build/
+cmake-build-*/
+
+# Editor / OS files
+.vscode/
+.idea/
+*.bak
+*.pybak
+*.pyk
