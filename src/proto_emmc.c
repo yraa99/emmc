@@ -1527,6 +1527,32 @@ static bool emmc_switch_partition(uint16_t rca, uint8_t partition, char *msg, si
   return true;
 }
 
+static bool emmc_read_area_probe(uint8_t partition, uint32_t lba, uint8_t out[EMMC_DUMP_BLOCK_SIZE],
+                                   char *msg, size_t msg_len) {
+  uint16_t rca = 0u;
+  bool hc = false;
+  if (!out) return false;
+  if (!emmc_prepare_card_for_data(&rca, &hc, msg, msg_len)) return false;
+  g_emmc.dump_rca = rca;
+  g_emmc.dump_hc_addressing = hc;
+  if (partition != 0u && !emmc_switch_partition(rca, partition, msg, msg_len)) return false;
+  if (!emmc_read_block(lba, hc, out, msg, msg_len)) {
+    if (partition != 0u) {
+      char restore_msg[96];
+      (void)emmc_switch_partition(rca, 0u, restore_msg, sizeof(restore_msg));
+    }
+    return false;
+  }
+  if (partition != 0u) {
+    char restore_msg[96];
+    if (!emmc_switch_partition(rca, 0u, restore_msg, sizeof(restore_msg))) {
+      if (msg && msg_len) snprintf(msg, msg_len, "partition restore failed: %s", restore_msg);
+      return false;
+    }
+  }
+  return true;
+}
+
 bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len) {
   emmc_id_data_t id;
   uint8_t r1[6];
@@ -1786,6 +1812,12 @@ static void emmc_identify_once(void) {
   uint8_t ext_rev = 0u;
   uint8_t bus_width = 0u;
   bool ext_ok = false;
+  uint8_t boot1_probe[EMMC_DUMP_BLOCK_SIZE];
+  uint8_t boot2_probe[EMMC_DUMP_BLOCK_SIZE];
+  uint8_t user_probe[EMMC_DUMP_BLOCK_SIZE];
+  bool boot1_ok = false;
+  bool boot2_ok = false;
+  bool user_ok = false;
 
   status_led_set_busy(true);
 
@@ -1839,16 +1871,25 @@ static void emmc_identify_once(void) {
   ext_rev = ext[192];
   bus_width = ext[183];
 
+  /* Comprehensive IDENTIFY: after registers, verify BOOT1, BOOT2 and USERAREA
+     data paths. BOOT access is switched with CMD6 and restored to USERAREA. */
+  boot1_ok = emmc_read_area_probe(1u, 0u, boot1_probe, msg, sizeof(msg));
+  boot2_ok = emmc_read_area_probe(2u, 0u, boot2_probe, msg, sizeof(msg));
+  user_ok = emmc_read_area_probe(0u, 0u, user_probe, msg, sizeof(msg));
+
   snprintf(out, sizeof(out),
            "{\"type\":\"emmc.identify.result\",\"ok\":true,"
            "\"cid\":\"%s\",\"csd\":\"%s\",\"ext_csd\":\"%s\","
            "\"ocr\":%lu,\"rca\":%u,\"capacity_bytes\":%llu,"
            "\"sector_size\":512,\"ext_csd_rev\":%u,\"bus_width_mode\":%u,"
-           "\"clock_hz\":200000}",
+           "\"clock_hz\":200000,\"boot1_read\":%s,\"boot2_read\":%s,"
+           "\"extcsd_read\":true,\"userarea_read\":%s}",
            cid_hex, csd_hex, ext_hex,
            (unsigned long)id.ocr, (unsigned)id.rca,
            (unsigned long long)capacity_bytes,
-           (unsigned)ext_rev, (unsigned)bus_width);
+           (unsigned)ext_rev, (unsigned)bus_width,
+           boot1_ok ? "true" : "false", boot2_ok ? "true" : "false",
+           user_ok ? "true" : "false");
   strncat(out, "\\n", sizeof(out) - strlen(out) - 1u);
 
   bool sent = app_send_text(out);
