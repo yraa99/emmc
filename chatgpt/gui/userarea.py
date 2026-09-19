@@ -109,6 +109,8 @@ class UserAreaTab(QWidget):
             self.gpt_timeout.stop()
             self.console.log(f"GPT ERROR: {e}")
             self.gpt_busy = False
+            self.buildprop_busy = False
+            self.buildprop_status.setText("Scan failed to start")
             self.scan.setEnabled(True)
 
     def handle_serial_data(self, obj):
