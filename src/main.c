@@ -177,6 +177,7 @@ bool app_send_text(const char *text) {
     size_t len = strlen(text);
     size_t sent = 0u;
     while (sent < len) {
+        if (!tud_cdc_connected()) return false;
         uint32_t avail = tud_cdc_write_available();
         if (avail == 0u) {
             tud_task();
