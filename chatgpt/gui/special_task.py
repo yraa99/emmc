@@ -3,19 +3,22 @@ import re
 from datetime import datetime
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QComboBox, QTextEdit
-from PyQt6.QtCore import QTimer
 
 
 class SpecialTaskTab(QWidget):
-    """Functional read-only special tasks.
+    """UFI-style direct-execution service tasks.
 
-    WRITE/erase/reset tasks are intentionally not exposed yet. Every task
-    shown here has a real GUI -> firmware -> result path.
+    Selecting a task executes it immediately. This widget never opens another
+    tab or dialog. Firmware support is required for every task exposed here.
     """
 
     TASKS = [
-        ("eMMC Health Check", True),
+        ("FFU MODE", True),
+        ("PARTITION CONFIG", True),
+        ("RPMB INFO", True),
+        ("SECURITY TASK", True),
         ("Backup Security", True),
+        ("eMMC Health Check", True),
     ]
 
     BIN_MAGIC = 0xB0
@@ -60,9 +63,7 @@ class SpecialTaskTab(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        title = QLabel("SPECIAL TASK")
-        title.setObjectName("section_title")
-        layout.addWidget(title)
+        layout.addWidget(QLabel("SPECIAL TASK"))
 
         self.task_combo = QComboBox()
         for name, enabled in self.TASKS:
@@ -72,7 +73,7 @@ class SpecialTaskTab(QWidget):
 
         self.description = QTextEdit()
         self.description.setReadOnly(True)
-        self.description.setMinimumHeight(140)
+        self.description.setMinimumHeight(180)
         layout.addWidget(self.description)
         layout.addStretch(1)
 
@@ -92,23 +93,15 @@ class SpecialTaskTab(QWidget):
             self.execute_task(index)
 
     def describe_task(self, index):
-        if index < 0 or index >= len(self.TASKS):
-            return
-        name, _ = self.TASKS[index]
-        if name == "eMMC Health Check":
-            text = (
-                "eMMC Health Check\n\n"
-                "Reads EXT_CSD health fields from the connected eMMC: "
-                "PRE_EOL_INFO, DEVICE_LIFE_TIME_EST_TYP_A/B and RPMB_SIZE_MULT."
-            )
-        else:
-            text = (
-                "Backup Security\n\n"
-                "Reads the GPT, detects security/identity partitions such as "
-                "EFS/NVRAM/NVDATA/NVCFG/PROINFO/MODEMST/FSG/FSC/PERSIST and "
-                "backs up every detected security partition to a timestamped folder."
-            )
-        self.description.setPlainText(text)
+        descriptions = {
+            "FFU MODE": "Read and report FFU capability/status from EXT_CSD.",
+            "PARTITION CONFIG": "Read EXT_CSD[179] and decode BOOT_ACK, BOOT_PARTITION_ENABLE and PARTITION_ACCESS.",
+            "RPMB INFO": "Read RPMB size multiplier and relevant EXT_CSD information.",
+            "SECURITY TASK": "Scan GPT and report security/identity partitions without writing them.",
+            "Backup Security": "Scan GPT, detect security/identity partitions and back them up as binary files.",
+            "eMMC Health Check": "Read PRE_EOL_INFO, DEVICE_LIFE_TIME_EST_TYP_A/B and RPMB_SIZE_MULT.",
+        }
+        self.description.setPlainText(descriptions.get(self.TASKS[index][0], ""))
 
     def execute_task(self, index=None):
         if index is None:
@@ -116,10 +109,34 @@ class SpecialTaskTab(QWidget):
         if index < 0 or index >= len(self.TASKS):
             return
         name = self.TASKS[index][0]
+        direct = {
+            "FFU MODE": "ffu",
+            "PARTITION CONFIG": "partition_config",
+            "RPMB INFO": "rpmb_info",
+        }
+        if name in direct:
+            self.console.log(f"SPECIAL TASK: {name}")
+            try:
+                self.emmc.special_task(direct[name])
+            except Exception as e:
+                self.console.log(f"SPECIAL TASK ERROR: {e}")
+            return
+        if name == "SECURITY TASK":
+            self.security_parts = []
+            self.security_waiting_gpt = True
+            self.security_waiting_buildprop = False
+            self.console.log("SECURITY TASK: scanning GPT...")
+            try:
+                self.emmc.gpt()
+            except Exception as e:
+                self.security_waiting_gpt = False
+                self.console.log(f"SECURITY TASK ERROR: {e}")
+            return
+        if name == "Backup Security":
+            self.run_security_backup()
+            return
         if name == "eMMC Health Check":
             self.run_health()
-        elif name == "Backup Security":
-            self.run_security_backup()
 
     def run_health(self):
         if self.health_busy:
@@ -156,11 +173,20 @@ class SpecialTaskTab(QWidget):
 
     @staticmethod
     def safe_name(name):
-        name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(name).strip())
-        return name or "partition"
+        return re.sub(r"[^A-Za-z0-9._-]+", "_", str(name).strip()) or "partition"
 
     def handle_serial_data(self, obj):
         typ = obj.get("type")
+
+        if typ == "emmc.special.result":
+            if obj.get("ok"):
+                self.console.log(f"SPECIAL TASK OK: {obj.get('task', '')}")
+                for key, value in obj.items():
+                    if key not in ("type", "ok", "task"):
+                        self.console.log(f"{key.upper()} : {value}")
+            else:
+                self.console.log("SPECIAL TASK ERROR: " + str(obj.get("msg", "unknown error")))
+            return
 
         if typ == "emmc.layout.result" and self.health_busy:
             self.health_busy = False
@@ -174,47 +200,42 @@ class SpecialTaskTab(QWidget):
             if len(ext) != 512:
                 self.console.log("HEALTH ERROR: EXT_CSD payload tidak lengkap")
                 return
-            a, b, pre = ext[268], ext[269], ext[267]
+            a, b, pre, rpmb = ext[268], ext[269], ext[267], ext[168]
             pre_text = {1: "NORMAL", 2: "WARNING", 3: "URGENT"}.get(pre, "UNKNOWN")
             self.console.log(
                 f"eMMC HEALTH: LIFE_A=0x{a:02X} LIFE_B=0x{b:02X} "
-                f"PRE_EOL=0x{pre:02X} {pre_text}"
+                f"PRE_EOL=0x{pre:02X} {pre_text} RPMB_SIZE_MULT=0x{rpmb:02X}"
             )
-            self.console.log(f"eMMC HEALTH: RPMB_SIZE_MULT=0x{ext[168]:02X}")
             return
 
-        if typ == "emmc.gpt.begin" and self.security_waiting_gpt:
+        if typ == "emmc.gpt.begin" and (self.security_waiting_gpt or self.security_busy):
             self.security_parts = []
             return
 
-        if typ == "emmc.gpt.partition" and self.security_waiting_gpt:
+        if typ == "emmc.gpt.partition" and (self.security_waiting_gpt or self.security_busy):
             name = str(obj.get("name", "")).strip()
             if self.is_security_partition(name):
                 sectors = int(obj.get("sectors", 0))
                 start = int(obj.get("start_lba", 0))
+                self.console.log(f"SECURITY CANDIDATE: {name} LBA={start} sectors={sectors}")
                 if sectors > 0:
-                    self.security_parts.append({
-                        "name": name,
-                        "start": start,
-                        "sectors": sectors,
-                    })
+                    self.security_parts.append({"name": name, "start": start, "sectors": sectors})
             return
 
         if typ == "emmc.gpt.end" and self.security_waiting_gpt:
             self.security_waiting_gpt = False
             if not obj.get("ok", True):
                 self.security_waiting_buildprop = False
-                self.console.log("SECURITY BACKUP ERROR: GPT scan failed")
+                self.console.log("SECURITY TASK/Backup ERROR: GPT scan failed")
                 return
-            # app_handle_gpt emits build.prop scan after gpt.end. Wait for its
-            # terminal packet so the security dump does not interrupt it.
-            if not self.security_waiting_buildprop:
-                self._start_security_backup()
+            if self.security_waiting_buildprop:
+                return
+            self._start_security_backup()
             return
 
         if typ == "emmc.buildprop.end" and self.security_waiting_buildprop:
             self.security_waiting_buildprop = False
-            if not self.security_waiting_gpt:
+            if self.security_busy and not self.security_waiting_gpt:
                 self._start_security_backup()
             return
 
@@ -222,10 +243,9 @@ class SpecialTaskTab(QWidget):
             state = str(obj.get("state", ""))
             if state == "complete":
                 self._finish_security_file(True)
-                return
-            if state in ("error", "stopped"):
+            elif state in ("error", "stopped"):
                 self._finish_security_file(False)
-                return
+            return
 
     def _start_security_backup(self):
         if self.security_busy:
@@ -233,7 +253,6 @@ class SpecialTaskTab(QWidget):
         if not self.security_parts:
             self.console.log("SECURITY BACKUP: no known security partitions found in GPT")
             return
-
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.security_dir = os.path.abspath(f"security_backup_{stamp}")
         try:
@@ -241,12 +260,9 @@ class SpecialTaskTab(QWidget):
         except OSError as e:
             self.console.log(f"SECURITY BACKUP DIRECTORY ERROR: {e}")
             return
-
         self.security_busy = True
         self.security_index = 0
-        self.console.log(
-            f"SECURITY BACKUP: {len(self.security_parts)} partition(s) -> {self.security_dir}"
-        )
+        self.console.log(f"SECURITY BACKUP: {len(self.security_parts)} partition(s) -> {self.security_dir}")
         self._start_next_security_partition()
 
     def _start_next_security_partition(self):
@@ -256,7 +272,6 @@ class SpecialTaskTab(QWidget):
             self.security_file = None
             self.console.log(f"SECURITY BACKUP COMPLETE: {self.security_dir}")
             return
-
         p = self.security_parts[self.security_index]
         path = os.path.join(self.security_dir, self.safe_name(p["name"]) + ".bin")
         try:
@@ -267,13 +282,10 @@ class SpecialTaskTab(QWidget):
             self.security_index += 1
             self._start_next_security_partition()
             return
-
         self.security_current = p
         self.security_received = 0
         self.security_expected = p["sectors"] * 512
-        self.console.log(
-            f"SECURITY BACKUP: {p['name']} LBA={p['start']} sectors={p['sectors']}"
-        )
+        self.console.log(f"SECURITY BACKUP: {p['name']} LBA={p['start']} sectors={p['sectors']}")
         try:
             self.emmc.dump_start(p["start"], p["sectors"], 512, True, 3, 0)
         except Exception as e:
@@ -308,6 +320,8 @@ class SpecialTaskTab(QWidget):
                 pass
         self.security_file = None
         p = self.security_current
+        if not p:
+            return
         if success and self.security_received >= self.security_expected:
             self.console.log(f"SECURITY BACKUP OK: {p['name']} -> {path}")
         else:
