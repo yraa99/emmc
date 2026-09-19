@@ -402,6 +402,40 @@ class MainWindow(QMainWindow):
                     "IDENTIFY ERROR: " + str(packet.get("msg", "unknown error"))
                 )
 
+        elif kind == "emmc.layout.result":
+            if packet.get("ok", False):
+                self.progress_bar.setValue(100)
+                self.operation_label.setText("eMMC HEALTH / EXT_CSD complete")
+                self.footer_status.setText("Ready")
+                self.btn_cancel.setEnabled(False)
+                self.operation_timer.stop()
+            else:
+                self.finish_operation(False)
+        elif kind == "emmc.gpt.result":
+            if packet.get("ok", False):
+                self.progress_bar.setValue(85)
+                self.operation_label.setText("GPT found — reading build.prop...")
+            else:
+                self.finish_operation(False)
+        elif kind == "emmc.buildprop.end":
+            self.progress_bar.setValue(100 if packet.get("ok", False) else 90)
+            self.operation_label.setText("GPT / build.prop scan complete")
+            self.footer_status.setText("Ready")
+            self.btn_cancel.setEnabled(False)
+            self.operation_timer.stop()
+        elif kind == "emmc.dump.status":
+            state = str(packet.get("state", ""))
+            done = int(packet.get("done_blocks", 0))
+            total = max(1, int(packet.get("total_blocks", 1)))
+            if state in ("complete", "error", "stopped"):
+                self.progress_bar.setValue(100 if state == "complete" else 0)
+                self.operation_label.setText(f"READ {state}")
+                self.footer_status.setText("Ready" if state == "complete" else "Error")
+                self.btn_cancel.setEnabled(False)
+                self.operation_timer.stop()
+            else:
+                self.progress_bar.setValue(min(99, int(done * 100 / total)))
+
     def operation_timeout(self):
         self.btn_cancel.setEnabled(False)
         self.operation_label.setText("Operation timeout")
