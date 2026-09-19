@@ -1143,7 +1143,8 @@ static bool send_gpt_result(void) {
     if (entry_count > 128u) entry_count = 128u;
 
     char out[320];
-    snprintf(out, sizeof(out), "{\"type\":\"emmc.gpt.begin\",\"ok\":true,\"first_usable\":%llu,\"last_usable\":%llu,\"entries\":%lu,\"entry_size\":%lu}\n",
+    snprintf(out, sizeof(out),
+             "{\"type\":\"emmc.gpt.begin\",\"ok\":true,\"layout_type\":\"GPT\",\"primary_gpt_lba\":0,\"primary_gpt_sectors\":34,\"first_usable\":%llu,\"last_usable\":%llu,\"entries\":%lu,\"entry_size\":%lu}\n",
              (unsigned long long)first_usable, (unsigned long long)last_usable,
              (unsigned long)entry_count, (unsigned long)entry_size);
     if (!app_send_text(out)) return false;
