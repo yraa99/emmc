@@ -633,7 +633,7 @@ static bool send_gpt_result(void) {
                    (unsigned long)i, name, (unsigned long long)first, (unsigned long long)last,
                    (unsigned long long)(last - first + 1ull));
         if (!app_send_text(out)) return false;
-        if (strcasecmp(name, "super") == 0) gpt_has_super_partition = true;
+        if (strcmp(name, "super") == 0) gpt_has_super_partition = true;
         buildprop_add_candidate(name, first, last - first + 1ull);
         valid_partitions++;
     }
