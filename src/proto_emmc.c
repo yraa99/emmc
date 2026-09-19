@@ -197,6 +197,10 @@ static emmc_state_t g_emmc = {
 
 static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
 static void snapshot_levels(void);
+static bool emmc_set_boot_config(uint8_t boot_partition, uint8_t bus_width,
+                                 uint8_t reset, uint8_t boot_mode, uint8_t ack,
+                                 char *msg, size_t msg_len);
+static bool emmc_send_extcsd_special(const char *task);
 static void emmc_dbg(uint8_t level, const char *msg) {
   (void)app_debug_log(level, "emmc", msg);
   // Keep USB CDC serviced while IDENTIFY performs synchronous bit-banging.
@@ -240,6 +244,21 @@ static uint8_t clamp_retry_idle_clks(uint32_t v) {
   if (v <= 1u) return 1u;
   if (v <= 4u) return 4u;
   return 8u;
+}
+
+static bool json_extract_string(const char *json, const char *key, char *out, size_t out_len) {
+  const char *p;
+  size_t n = 0u;
+  if (!json || !key || !out || out_len == 0u) return false;
+  p = strstr(json, key);
+  if (!p) return false;
+  p = strchr(p, ':');
+  if (!p) return false;
+  p++;
+  while (*p == ' ' || *p == '\"') p++;
+  while (*p && *p != '\"' && n + 1u < out_len) out[n++] = *p++;
+  out[n] = 0;
+  return n > 0u;
 }
 
 static bool json_extract_u32(const char *json, const char *key, uint32_t *out) {
@@ -1500,6 +1519,124 @@ static bool send_layout_result(void) {
 
 bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len);
 
+static bool emmc_cmd6_write_byte(uint8_t index, uint8_t value, char *msg, size_t msg_len) {
+  uint16_t rca = g_emmc.dump_rca ? g_emmc.dump_rca : 1u;
+  uint8_t r1[6];
+  uint32_t arg = (3u << 24u) | ((uint32_t)index << 16u) | ((uint32_t)value << 8u);
+  uint32_t i;
+  uint32_t deadline;
+  for (i = 0; i < EMMC_CMDX_RETRIES; i++) {
+    if (emmc_send_cmd_raw(6u, arg, 48u, r1, sizeof(r1))) break;
+    emmc_send_retry_idle();
+  }
+  if (i >= EMMC_CMDX_RETRIES) {
+    if (msg && msg_len) snprintf(msg, msg_len, "CMD6 failed index %u", (unsigned)index);
+    return false;
+  }
+  deadline = now_ms() + 1000u;
+  while (!gpio_get(EMMC_DAT0_PIN)) {
+    if ((int32_t)(now_ms() - deadline) >= 0) {
+      if (msg && msg_len) snprintf(msg, msg_len, "CMD6 busy timeout index %u", (unsigned)index);
+      return false;
+    }
+    tud_task();
+    tight_loop_contents();
+  }
+  emmc_send_idle_clocks(8u);
+  return true;
+}
+
+static bool emmc_set_boot_config(uint8_t boot_partition, uint8_t bus_width,
+                                 uint8_t reset, uint8_t boot_mode, uint8_t ack,
+                                 char *msg, size_t msg_len) {
+  uint8_t ext[EMMC_DUMP_BLOCK_SIZE];
+  uint8_t current_part;
+  uint8_t new_part_cfg;
+  uint8_t new_bus_cfg;
+  uint16_t rca;
+  bool hc;
+  if (boot_partition > 7u || (boot_partition != 0u && boot_partition != 1u &&
+                              boot_partition != 2u && boot_partition != 7u)) {
+    if (msg && msg_len) snprintf(msg, msg_len, "Invalid boot partition %u", (unsigned)boot_partition);
+    return false;
+  }
+  if (bus_width > 2u || reset > 1u || boot_mode > 2u || ack > 1u) {
+    if (msg && msg_len) snprintf(msg, msg_len, "Invalid SetBoot parameters");
+    return false;
+  }
+  if (!emmc_prepare_card_for_data(&rca, &hc, msg, msg_len)) return false;
+  g_emmc.dump_rca = rca;
+  if (!emmc_read_ext_csd(ext, msg, msg_len)) return false;
+
+  current_part = (uint8_t)((ext[179] >> 3u) & 0x07u);
+  (void)current_part;
+  new_part_cfg = (uint8_t)((ext[179] & 0xC7u) |
+                           ((boot_partition & 0x07u) << 3u) |
+                           (ack ? 0x40u : 0u));
+  new_bus_cfg = (uint8_t)((ext[177] & 0xE0u) |
+                          ((boot_mode & 0x03u) << 3u) |
+                          ((reset & 0x01u) << 2u) |
+                          (bus_width & 0x03u));
+
+  if (!emmc_cmd6_write_byte(179u, new_part_cfg, msg, msg_len)) return false;
+  if (!emmc_cmd6_write_byte(177u, new_bus_cfg, msg, msg_len)) return false;
+
+  if (!emmc_read_ext_csd(ext, msg, msg_len)) return false;
+  {
+    char out[320];
+    snprintf(out, sizeof(out),
+             "{\"type\":\"emmc.setboot.result\",\"ok\":true,"
+             "\"partition_config\":%u,\"boot_partition\":%u,"
+             "\"partition_access\":%u,\"boot_ack\":%u,"
+             "\"boot_bus_width\":%u,\"boot_bus_raw\":%u}",
+             (unsigned)ext[179], (unsigned)((ext[179] >> 3u) & 0x07u),
+             (unsigned)(ext[179] & 0x07u), (unsigned)((ext[179] >> 6u) & 0x01u),
+             (unsigned)(ext[177] & 0x03u), (unsigned)ext[177]);
+    (void)app_send_text(out);
+  }
+  return true;
+}
+
+static bool emmc_send_extcsd_special(const char *task) {
+  uint8_t ext[EMMC_DUMP_BLOCK_SIZE];
+  char msg[96] = {0};
+  char out[512];
+  if (!task) return false;
+  if (!emmc_read_ext_csd(ext, msg, sizeof(msg))) {
+    snprintf(out, sizeof(out),
+             "{\"type\":\"emmc.special.result\",\"ok\":false,\"task\":\"%s\",\"msg\":\"%s\"}",
+             task, msg[0] ? msg : "EXT_CSD read failed");
+    return app_send_text(out);
+  }
+
+  if (strcmp(task, "ffu") == 0) {
+    snprintf(out, sizeof(out),
+             "{\"type\":\"emmc.special.result\",\"ok\":true,\"task\":\"FFU MODE\","
+             "\"mode_config\":%u,\"ffu_status\":%u,\"ffu_features\":%u,"
+             "\"ffu_supported\":%s}",
+             (unsigned)ext[30], (unsigned)ext[26], (unsigned)ext[492],
+             (ext[30] != 0u || ext[26] != 0u || ext[492] != 0u) ? "true" : "false");
+  } else if (strcmp(task, "partition_config") == 0) {
+    snprintf(out, sizeof(out),
+             "{\"type\":\"emmc.special.result\",\"ok\":true,\"task\":\"PARTITION CONFIG\","
+             "\"partition_config\":%u,\"boot_ack\":%u,\"boot_partition\":%u,\"partition_access\":%u}",
+             (unsigned)ext[179], (unsigned)((ext[179] >> 6u) & 1u),
+             (unsigned)((ext[179] >> 3u) & 7u), (unsigned)(ext[179] & 7u));
+  } else if (strcmp(task, "rpmb_info") == 0) {
+    snprintf(out, sizeof(out),
+             "{\"type\":\"emmc.special.result\",\"ok\":true,\"task\":\"RPMB INFO\","
+             "\"rpmb_size_mult\":%u,\"rpmb_size_kib\":%u,\"rpmb_size_bytes\":%lu,"
+             "\"ext_csd_rev\":%u}",
+             (unsigned)ext[168], (unsigned)ext[168] * 128u,
+             (unsigned long)ext[168] * 128ul * 1024ul, (unsigned)ext[192]);
+  } else {
+    snprintf(out, sizeof(out),
+             "{\"type\":\"emmc.special.result\",\"ok\":false,\"task\":\"%s\","
+             "\"msg\":\"unsupported special task\"}", task);
+  }
+  return app_send_text(out);
+}
+
 static bool emmc_switch_partition(uint16_t rca, uint8_t partition, char *msg, size_t msg_len) {
   uint8_t r1[6];
   uint8_t ext[EMMC_DUMP_BLOCK_SIZE];
@@ -1950,6 +2087,56 @@ bool proto_emmc_handle_text(const char *type, const char *json) {
   if (strcmp(type, "emmc.identify") == 0) {
     proto_emmc_stop_all();
     emmc_identify_once();
+    return true;
+  }
+  if (strcmp(type, "emmc.special") == 0) {
+    proto_emmc_stop_all();
+    char task[32];
+    if (!json_extract_string(json, "task", task, sizeof(task))) {
+      (void)app_send_text("{\"type\":\"emmc.special.result\",\"ok\":false,\"msg\":\"missing task\"}");
+      return true;
+    }
+    (void)emmc_send_extcsd_special(task);
+    if (strcmp(task, "security") == 0) (void)app_handle_gpt();
+    return true;
+  }
+  if (strcmp(type, "emmc.setboot.read") == 0) {
+    uint8_t ext[EMMC_DUMP_BLOCK_SIZE];
+    char msg[96] = {0};
+    char out[420];
+    proto_emmc_stop_all();
+    if (!emmc_read_ext_csd(ext, msg, sizeof(msg))) {
+      snprintf(out, sizeof(out),
+               "{\"type\":\"emmc.setboot.result\",\"ok\":false,\"msg\":\"%s\"}", msg);
+    } else {
+      snprintf(out, sizeof(out),
+               "{\"type\":\"emmc.setboot.result\",\"ok\":true,"
+               "\"partition_config\":%u,\"boot_partition\":%u,"
+               "\"partition_access\":%u,\"boot_ack\":%u,"
+               "\"boot_bus_width\":%u,\"boot_bus_raw\":%u}",
+               (unsigned)ext[179], (unsigned)((ext[179] >> 3u) & 7u),
+               (unsigned)(ext[179] & 7u), (unsigned)((ext[179] >> 6u) & 1u),
+               (unsigned)(ext[177] & 3u), (unsigned)ext[177]);
+    }
+    (void)app_send_text(out);
+    return true;
+  }
+  if (strcmp(type, "emmc.setboot.write") == 0) {
+    uint32_t part = 0u, width = 2u, reset = 0u, mode = 0u, ack = 0u;
+    char msg[96] = {0};
+    proto_emmc_stop_all();
+    if (!json_extract_u32(json, "boot_partition", &part)) part = 0u;
+    if (!json_extract_u32(json, "bus_width", &width)) width = 2u;
+    if (!json_extract_u32(json, "reset", &reset)) reset = 0u;
+    if (!json_extract_u32(json, "boot_mode", &mode)) mode = 0u;
+    if (!json_extract_u32(json, "ack", &ack)) ack = 0u;
+    if (!emmc_set_boot_config((uint8_t)part, (uint8_t)width, (uint8_t)reset,
+                              (uint8_t)mode, (uint8_t)ack, msg, sizeof(msg))) {
+      char out[220];
+      snprintf(out, sizeof(out),
+               "{\"type\":\"emmc.setboot.result\",\"ok\":false,\"msg\":\"%s\"}", msg);
+      (void)app_send_text(out);
+    }
     return true;
   }
   if (strcmp(type, "emmc.stop") == 0) {
