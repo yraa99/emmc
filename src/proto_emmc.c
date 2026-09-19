@@ -2042,20 +2042,36 @@ static void emmc_identify_once(void) {
      EXT_CSD is returned in full. GPT/build.prop discovery runs immediately
      so the console receives build.prop information during IDENTIFY. */
   boot1_ok = emmc_read_area_probe(1u, 0u, boot1_probe, msg, sizeof(msg));
+  if (!boot1_ok) {
+    char boot_msg[96];
+    snprintf(boot_msg, sizeof(boot_msg), "BOOT1 LBA0 probe failed: %s",
+             msg[0] ? msg : "unknown error");
+    emmc_dbg(1, boot_msg);
+  }
   boot2_ok = emmc_read_area_probe(2u, 0u, boot2_probe, msg, sizeof(msg));
+  if (!boot2_ok) {
+    char boot_msg[96];
+    snprintf(boot_msg, sizeof(boot_msg), "BOOT2 LBA0 probe failed: %s",
+             msg[0] ? msg : "unknown error");
+    emmc_dbg(1, boot_msg);
+  }
   user_ok = emmc_read_area_probe(0u, 0u, user_probe, msg, sizeof(msg));
 
   /* GPT scan also drives the existing Android build.prop scanner. */
   (void)app_handle_gpt(true);
 
   {
-    bool identify_ok = boot1_ok && boot2_ok && user_ok && ext_ok;
+    /*
+     * IDENTIFY's core result is the card identity/register set plus USERAREA.
+     * BOOT1/BOOT2 are independent media areas and their probe status is
+     * reported separately so a boot-area problem cannot hide valid identity
+     * information.
+     */
+    bool identify_ok = user_ok && ext_ok;
     const char *fail_stage = identify_ok ? "" :
-        (!boot1_ok ? "BOOT1" : (!boot2_ok ? "BOOT2" : (!user_ok ? "USERAREA" : "EXT_CSD")));
+        (!user_ok ? "USERAREA" : "EXT_CSD");
     const char *fail_msg = identify_ok ? "" :
-        (!boot1_ok ? "BOOT1 LBA0 probe failed" :
-         (!boot2_ok ? "BOOT2 LBA0 probe failed" :
-          (!user_ok ? "USERAREA LBA0 probe failed" : "EXT_CSD read failed")));
+        (!user_ok ? "USERAREA LBA0 probe failed" : "EXT_CSD read failed");
     snprintf(out, sizeof(out),
            "{\"type\":\"emmc.identify.result\",\"ok\":%s,"
            "\"stage\":\"%s\",\"msg\":\"%s\","
