@@ -881,25 +881,24 @@ class MainWindow(QMainWindow):
                     self.main_gpt()
             else:
                 self.finish_operation(False, "IDENTIFY FAILED")
+                self.console.log(
+                    "IDENTIFY ERROR: "
+                    + str(obj.get("stage", "unknown stage"))
+                    + " - "
+                    + str(obj.get("msg", "unknown error"))
+                )
         elif typ == "emmc.gpt.end":
             if obj.get("ok", True):
                 self.finish_operation(True, "GPT OK")
             else:
                 self.finish_operation(False, "GPT FAILED")
         elif typ == "emmc.layout.result":
+            # layout.read is also used by the MAIN backup actions. SetBoot
+            # has its own read command/result path; never access stale
+            # MainWindow SetBoot widgets here.
             if self.program_backup["active"]:
                 self._start_program_backup_from_layout(obj)
                 return
-            if obj.get("ok"):
-                cfg = int(obj.get("partition_config", 0) or 0)
-                boot_en = (cfg >> 3) & 0x7
-                access = cfg & 0x7
-                source = {0: "Disabled", 1: "BOOT1", 2: "BOOT2", 7: "User Area"}.get(boot_en, "Disabled")
-                self.setboot_source.setCurrentText(source)
-                self.console.log(f"SETBOOT READ : SoC={self.setboot_chipset.currentText()}  PARTITION_CONFIG=0x{cfg:02X}  Boot={source}  Access={access}")
-                self.finish_operation(True, "SETBOOT READ OK")
-            else:
-                self.finish_operation(False, "SETBOOT READ FAILED")
         elif typ == "emmc.dump.status":
             if self.program_backup["active"]:
                 state = str(obj.get("state", ""))
