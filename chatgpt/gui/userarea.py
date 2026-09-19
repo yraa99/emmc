@@ -42,7 +42,7 @@ class UserAreaTab(QWidget):
         self.verify = QPushButton("VERIFY")
         self.stop = QPushButton("STOP")
         self.write.setEnabled(False)   # No WRITE command exists in current RP2040 firmware.
-        self.verify.setEnabled(False)  # Enabled after a READ file exists; compare implementation is local/file-based.
+        self.verify.setEnabled(False)  # Enabled after a completed READ; compares against a user-selected reference image.
         self.stop.setEnabled(False)
         for b in (self.scan, self.read, self.write, self.verify, self.stop):
             b.setObjectName("serviceButton")
@@ -118,9 +118,11 @@ class UserAreaTab(QWidget):
             self.read.setEnabled(bool(self.partitions))
             self.verify.setEnabled(False)
             return
-        if typ == "emmc.gpt.result" and not obj.get("ok", False):
-            self.gpt_busy = False
-            self.console.log("GPT ERROR: " + str(obj.get("msg", "unknown error")))
+        if typ == "emmc.gpt.result":
+            if not obj.get("ok", False):
+                self.gpt_busy = False
+                self.read.setEnabled(False)
+                self.console.log("GPT ERROR: " + str(obj.get("msg", "unknown error")))
             return
         if typ == "emmc.dump.status":
             state = obj.get("state", "")
@@ -220,6 +222,7 @@ class UserAreaTab(QWidget):
         self.scan.setEnabled(True)
         self.read.setEnabled(bool(self.partitions))
         if success and self.dump_received >= self.dump_expected:
+            self._last_read_path = path
             self.verify.setEnabled(True)
             self.console.log(f"READ COMPLETE: {path}")
         elif stopped:
@@ -231,4 +234,36 @@ class UserAreaTab(QWidget):
         self.console.log("WRITE disabled: firmware write protocol is not implemented yet; no dummy write will be performed")
 
     def verifyPartition(self):
-        self.console.log("VERIFY will be enabled after a completed image read; byte-level source selection is the next patch")
+        p = self.selectedPartition()
+        if not p:
+            self.console.log("VERIFY: select a partition first")
+            return
+        name, start, count, status = p
+        if status == "SKIP":
+            self.console.log(f"VERIFY BLOCKED: {name} is SKIP by policy")
+            return
+        if not getattr(self, "_last_read_path", None):
+            self.console.log("VERIFY ERROR: no completed READ image is available")
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select reference image", "", "Binary (*.bin *.img);;All Files (*)"
+        )
+        if not path:
+            return
+        expected_size = count * 512
+        try:
+            import os
+            if os.path.getsize(path) != expected_size:
+                self.console.log(f"VERIFY SIZE ERROR: expected {expected_size} bytes")
+                return
+            with open(path, "rb") as f:
+                reference = f.read()
+            with open(self._last_read_path, "rb") as f:
+                captured = f.read()
+            if captured == reference:
+                self.console.log(f"VERIFY OK: {name} ({expected_size} bytes)")
+                return
+            mismatch = next((i for i, (a, b) in enumerate(zip(captured, reference)) if a != b), min(len(captured), len(reference)))
+            self.console.log(f"VERIFY FAILED: {name} first mismatch at byte 0x{mismatch:X}")
+        except OSError as e:
+            self.console.log(f"VERIFY FILE ERROR: {e}")

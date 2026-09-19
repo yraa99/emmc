@@ -99,9 +99,13 @@ class SpecialTaskTab(QWidget):
         actions = QGridLayout()
         actions.setHorizontalSpacing(8)
         actions.setVerticalSpacing(8)
-        for index, button in enumerate((self.ffu, self.setBoot, self.partition, self.rpmb, self.security)):
+        buttons = (self.ffu, self.setBoot, self.partition, self.rpmb, self.security)
+        for index, button in enumerate(buttons):
+            button.setMinimumHeight(30)
             button.setMinimumWidth(170)
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            button.setEnabled(False)
+            button.setToolTip("Belum tersedia pada firmware USB CDC eMMC saat ini.")
             actions.addWidget(button, index // 2, index % 2)
         layout.addLayout(actions)
 
@@ -116,10 +120,4 @@ class SpecialTaskTab(QWidget):
 
 
     def command(self,cmd):
-
-        self.console.log(
-            f"SPECIAL TASK : {cmd}"
-        )
-
-
-        # nanti masuk protocol.py
+        self.console.log(f"SPECIAL TASK : {cmd} belum tersedia pada firmware aktif")

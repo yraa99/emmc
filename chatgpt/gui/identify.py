@@ -123,6 +123,7 @@ class IdentifyTab(QWidget):
         self.finish()
 
     def finish(self):
+        self.timeout.stop()
         self.busy = False
         self.button.setEnabled(True)
         self.cancel.setEnabled(False)

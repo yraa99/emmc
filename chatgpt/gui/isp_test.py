@@ -202,12 +202,16 @@ class ISPTestTab(QWidget):
             self._set_state(self.dat0_state, None)
             self.frequency_actual.setText("Generated frequency: —")
             return
-        if kind == "emmc.pin_test.complete" and obj.get("pins") == ["CMD", "DAT0"]:
-            if obj.get("restored"):
-                self.console.log("ISP: CMD / DAT0 TEST COMPLETE - pins restored to Hi-Z")
+        if kind == "emmc.pin_test.result":
+            pin = obj.get("pin", "?")
+            level = obj.get("level", "?")
+            readback = obj.get("readback", "?")
+            if obj.get("ok"):
+                self.console.log(f"ISP: {pin} {level} TEST OK - readback={readback}")
             else:
-                self.console.log("ISP: CMD / DAT0 TEST COMPLETE")
+                self.console.log(f"ISP: {pin} {level} TEST FAILED")
             self.finish()
+            return
 
     def run_cmd(self):
         try:
