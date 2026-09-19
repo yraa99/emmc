@@ -27,6 +27,7 @@ class UserAreaTab(QWidget):
         self.buildprop_found = False
         self.gpt_count = 0
         self.boot_sectors = 0
+        self.primary_meta_lba = 0
         self.primary_meta_sectors = 34
         self.meta_label = "PRIMARY GPT"
         self.gpt_timeout = QTimer(self)
@@ -312,6 +313,8 @@ class UserAreaTab(QWidget):
             self.table.setRowCount(0)
             layout_type = str(obj.get("layout_type", "GPT")).upper()
             self.meta_label = "PRELOADER" if layout_type == "PRELOADER" else "PRIMARY GPT"
+            self.primary_meta_lba = int(obj.get("primary_gpt_lba", obj.get("preloader_lba", 0)))
+            self.primary_meta_sectors = int(obj.get("primary_gpt_sectors", obj.get("preloader_sectors", 34)))
             self._add_meta_partitions()
             self.status.setText("Reading GPT...")
             return
@@ -434,7 +437,34 @@ class UserAreaTab(QWidget):
             return
 
         if p.get("metadata_only"):
-            self.console.log(f"READ / BACKUP: {p['name']} metadata backup is not available through the user-area stream")
+            path, _ = QFileDialog.getSaveFileName(
+                self, f"Save {p['name']} backup", f"{p['name'].lower().replace(' ', '_')}.bin",
+                "Binary image (*.bin *.img);;All Files (*)"
+            )
+            if not path:
+                return
+            try:
+                self.dump_file = open(path, "w+b")
+                self.dump_file.truncate(p["sectors"] * 512)
+            except OSError as e:
+                self.dump_file = None
+                self.console.log(f"METADATA FILE ERROR: {e}")
+                return
+            self.dump_expected = p["sectors"] * 512
+            self.dump_received = 0
+            self.dump_segments = [(p["start"], p["sectors"])]
+            self.dump_segment_index = 0
+            self.dump_file_base = 0
+            self.dump_total = p["sectors"]
+            self.reading = True
+            self.read.setEnabled(False)
+            self.scan.setEnabled(False)
+            self.stop.setEnabled(True)
+            try:
+                self.emmc.dump_start(p["start"], p["sectors"], 512, True, 3, 0)
+            except Exception as e:
+                self.console.log(f"METADATA READ ERROR: {e}")
+                self.finish_read(False)
             return
 
         if p.get("partition") in (1, 2):
