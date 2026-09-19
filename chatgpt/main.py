@@ -16,6 +16,7 @@ IMPORTANT_TYPES = {
     "emmc.buildprop.result",
     "emmc.buildprop.end",
     "emmc.lp.result",
+    "emmc.lp.begin",
     "emmc.layout.result",
     "emmc.dump.status",
     "emmc.pin_test.result",
