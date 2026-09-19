@@ -94,7 +94,7 @@ class UserAreaTab(QWidget):
         self.actions_widget.setLayout(actions)
         actions.setSpacing(8)
         self.scan = QPushButton("READ GPT")
-        self.read = QPushButton("READ / BACKUP")
+        self.read = QPushButton("BACKUP")
         self.write = QPushButton("WRITE")
         self.stop = QPushButton("STOP")
         self.write.setEnabled(False)
@@ -414,7 +414,7 @@ class UserAreaTab(QWidget):
         if not p:
             return
         menu = QMenu(self)
-        read = menu.addAction("Read / Backup")
+        read = menu.addAction("Backup")
         verify = menu.addAction("Verify")
         menu.addSeparator()
         write = menu.addAction("Write")
