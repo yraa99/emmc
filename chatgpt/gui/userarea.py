@@ -15,6 +15,9 @@ class UserAreaTab(QWidget):
         self.console = console
         self.partitions = []
         self.gpt_busy = False
+        self.gpt_timeout = QTimer(self)
+        self.gpt_timeout.setSingleShot(True)
+        self.gpt_timeout.timeout.connect(self.on_gpt_timeout)
         self.dump_file = None
         self.dump_expected = 0
         self.dump_received = 0
@@ -76,14 +79,20 @@ class UserAreaTab(QWidget):
         if self.gpt_busy or self.reading:
             return
         self.gpt_busy = True
+        self.scan.setEnabled(False)
+        self.read.setEnabled(False)
+        self.stop.setEnabled(False)
         self.partitions.clear()
         self.table.setRowCount(0)
         self.console.log("GPT REQUEST")
         try:
             self.emmc.gpt()
+            self.gpt_timeout.start(60000)
         except Exception as e:
+            self.gpt_timeout.stop()
             self.console.log(f"GPT ERROR: {e}")
             self.gpt_busy = False
+            self.scan.setEnabled(True)
 
     def handle_serial_data(self, obj):
         typ = obj.get("type")
@@ -113,6 +122,7 @@ class UserAreaTab(QWidget):
                 self.table.setItem(row, c, QTableWidgetItem(v))
             return
         if typ == "emmc.gpt.end":
+            self.gpt_timeout.stop()
             self.gpt_busy = False
             count = int(obj.get("partitions", len(self.partitions)))
             if count > 0 and len(self.partitions) > 0:
@@ -127,8 +137,10 @@ class UserAreaTab(QWidget):
             self.verify.setEnabled(False)
             return
         if typ == "emmc.gpt.result":
+            self.gpt_timeout.stop()
             if not obj.get("ok", False):
                 self.gpt_busy = False
+                self.scan.setEnabled(True)
                 self.read.setEnabled(False)
                 self.console.log("GPT ERROR: " + str(obj.get("msg", "unknown error")))
             return
@@ -143,6 +155,18 @@ class UserAreaTab(QWidget):
                 self.finish_read(True)
             elif state == "error":
                 self.finish_read(False)
+
+    def on_gpt_timeout(self):
+        if not self.gpt_busy:
+            return
+        self.gpt_busy = False
+        self.scan.setEnabled(True)
+        self.read.setEnabled(bool(self.partitions))
+        self.console.log("GPT TIMEOUT (60s): firmware tidak menyelesaikan scan GPT")
+        try:
+            self.emmc.stop_tests()
+        except Exception:
+            pass
 
     def handle_binary_data(self, frame):
         if not self.reading or len(frame) < 8 or frame[0] != self.BIN_MAGIC:
