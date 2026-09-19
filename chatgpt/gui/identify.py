@@ -138,7 +138,12 @@ class IdentifyTab(QWidget):
         if typ != "emmc.identify.result":
             return
         if not obj.get("ok", False):
-            self.console.log("IDENTIFY ERROR: " + str(obj.get("msg", "unknown error")))
+            self.console.log(
+                "IDENTIFY FAILED: "
+                + str(obj.get("stage", "unknown stage"))
+                + " - "
+                + str(obj.get("msg", "unknown error"))
+            )
             self.set_value("Status", "ERROR")
             self.finish()
             return
@@ -193,7 +198,15 @@ class IdentifyTab(QWidget):
             value = self.table.item(row, 1)
             if key:
                 self.console.log(f"{key.text():16} : {value.text() if value else '-'}")
-        self.console.log("IDENTIFY OK")
+        boot1_ok = bool(obj.get("boot1_read"))
+        boot2_ok = bool(obj.get("boot2_read"))
+        if boot1_ok and boot2_ok:
+            self.console.log("IDENTIFY OK")
+        else:
+            failed = ", ".join(
+                name for name, ok in (("BOOT1", boot1_ok), ("BOOT2", boot2_ok)) if not ok
+            )
+            self.console.log(f"IDENTIFY OK - BOOT probe warning: {failed}")
         self.finish()
 
     def _log_system_summary(self, data):
