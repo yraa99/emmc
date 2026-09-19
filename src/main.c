@@ -166,12 +166,31 @@ void app_debug_log(uint8_t level, const char *scope, const char *msg) {
 
 // Fungsi pengiriman teks via USB CDC ke GUI Python
 bool app_send_text(const char *text) {
-    if (tud_cdc_connected()) {
-        tud_cdc_write(text, strlen(text));
+    if (!text || !tud_cdc_connected()) return false;
+
+    /*
+     * tud_cdc_write() is bounded by the currently available CDC TX buffer.
+     * Long JSON replies (notably the 512-byte EXT_CSD = 1024 hex chars)
+     * must therefore be drained in chunks; otherwise IDENTIFY/GPT can look
+     * successful in firmware while the GUI receives a truncated JSON frame.
+     */
+    size_t len = strlen(text);
+    size_t sent = 0u;
+    while (sent < len) {
+        uint32_t avail = tud_cdc_write_available();
+        if (avail == 0u) {
+            tud_task();
+            sleep_us(50);
+            continue;
+        }
+        size_t chunk = (size_t)avail;
+        if (chunk > (len - sent)) chunk = len - sent;
+        tud_cdc_write(text + sent, (uint32_t)chunk);
         tud_cdc_write_flush();
-        return true;
+        sent += chunk;
+        tud_task();
     }
-    return false;
+    return true;
 }
 
 // Fungsi pengiriman data biner mentah sektor eMMC ke GUI Python (dengan jeda stabilisasi USB)
