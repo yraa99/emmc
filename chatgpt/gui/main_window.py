@@ -163,15 +163,15 @@ class MainWindow(QMainWindow):
         self.tab_main.progress_signal.connect(self.progress_bar.setValue)
         self.tab_main.set_callbacks(
             health=self.main_health,
-            extcsd=self.boot.readExtCSD,
+            extcsd=self.main_extcsd,
             cancel=self.cancel_operation,
             special=self.run_special_task,
-            isp_monitor_start=self.isp.run_monitor_start,
-            isp_monitor_stop=self.isp.run_monitor_stop,
-            isp_cmd=self.isp.run_cmd,
-            isp_clk=self.isp.run_clk_wave,
-            isp_pins=self.isp.run_pins,
-            isp_cmd1=self.isp.run_cmd1,
+            isp_monitor_start=self.main_isp_monitor_start,
+            isp_monitor_stop=self.main_isp_monitor_stop,
+            isp_cmd=self.main_isp_cmd,
+            isp_clk=self.main_isp_clk,
+            isp_pins=self.main_isp_pins,
+            isp_cmd1=self.main_isp_cmd1,
         )
 
         # The four visible tabs use the complete beta service widgets.
@@ -220,9 +220,58 @@ class MainWindow(QMainWindow):
             return
         self.console.log("READ GPT requested")
         try:
+            self.progress_bar.setValue(max(self.progress_bar.value(), 70))
+            self.operation_label.setText("Scanning GPT / build.prop...")
             self.userarea.scanGPT()
         except Exception as e:
             self.console.log(f"READ GPT ERROR: {e}")
+
+    def main_extcsd(self):
+        if not self.serial or not self.serial.is_connected():
+            self.console.log("EXT_CSD: RP2040 is not connected")
+            return
+        self.begin_command("READ EXT_CSD")
+        try:
+            self.boot.readExtCSD()
+            self.progress_bar.setValue(20)
+        except Exception as e:
+            self.console.log(f"EXT_CSD ERROR: {e}")
+            self.finish_operation(False)
+
+    def main_isp_monitor_start(self, frequency):
+        self.begin_command("ISP MONITOR")
+        try:
+            self.isp.frequency.setValue(int(frequency))
+            self.isp.run_monitor_start()
+        except Exception as e:
+            self.console.log(f"ISP ERROR: {e}")
+            self.finish_operation(False)
+
+    def main_isp_monitor_stop(self):
+        try:
+            self.isp.run_monitor_stop()
+        finally:
+            self.finish_operation(True)
+
+    def main_isp_cmd(self):
+        self.begin_command("ISP CMD/CLK TEST")
+        try: self.isp.run_cmd()
+        except Exception as e: self.console.log(f"ISP ERROR: {e}"); self.finish_operation(False)
+
+    def main_isp_clk(self):
+        self.begin_command("ISP CLK WAVE TEST")
+        try: self.isp.run_clk_wave()
+        except Exception as e: self.console.log(f"ISP ERROR: {e}"); self.finish_operation(False)
+
+    def main_isp_pins(self):
+        self.begin_command("ISP CHECK PINS")
+        try: self.isp.run_pins()
+        except Exception as e: self.console.log(f"ISP ERROR: {e}"); self.finish_operation(False)
+
+    def main_isp_cmd1(self):
+        self.begin_command("ISP CMD1 RESPONSE TEST")
+        try: self.isp.run_cmd1()
+        except Exception as e: self.console.log(f"ISP ERROR: {e}"); self.finish_operation(False)
 
     def main_health(self):
         if not self.serial or not self.serial.is_connected():
@@ -326,6 +375,8 @@ class MainWindow(QMainWindow):
                 self.console.log("IDENTIFY OK - beta service result received")
                 if self.identify_sequence:
                     self.identify_sequence = False
+                    self.progress_bar.setValue(70)
+                    self.operation_label.setText("IDENTIFY OK — reading GPT...")
                     self.main_gpt()
             else:
                 self.console.log(
