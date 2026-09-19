@@ -217,7 +217,6 @@ class IdentifyTab(QWidget):
         self.busy = True
         self.button.setEnabled(False)
         self.cancel.setEnabled(True)
-        self.console.log("IDENTIFY REQUEST")
         try:
             self.emmc.identify()
             self.timeout.start(30000)
