@@ -1486,6 +1486,8 @@ static bool send_layout_result(void) {
   return app_send_text(out);
 }
 
+bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len);
+
 static bool emmc_switch_partition(uint16_t rca, uint8_t partition, char *msg, size_t msg_len) {
   uint8_t r1[6];
   uint8_t ext[EMMC_DUMP_BLOCK_SIZE];
