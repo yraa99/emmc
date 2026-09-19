@@ -8,7 +8,6 @@ class IdentifyTab(QWidget):
         self.emmc = emmc
         self.console = console
         self.busy = False
-        self.health_check_busy = False
         self.timeout = QTimer(self)
         self.timeout.setSingleShot(True)
         self.timeout.timeout.connect(self.on_timeout)
@@ -29,10 +28,9 @@ class IdentifyTab(QWidget):
         action_layout.setSpacing(6)
 
         self.button = QPushButton("IDENTIFY DEVICE")
-        self.health_check = QPushButton("eMMC HEALTH CHECK")
         self.cancel = QPushButton("CANCEL")
 
-        for button in (self.button, self.health_check, self.cancel):
+        for button in (self.button, self.cancel):
             button.setObjectName("serviceButton")
             button.setMinimumHeight(32)
             button.setMinimumWidth(145)
@@ -40,7 +38,6 @@ class IdentifyTab(QWidget):
 
         self.cancel.setEnabled(False)
         action_layout.addWidget(self.button)
-        action_layout.addWidget(self.health_check)
         action_layout.addWidget(self.cancel)
         layout.addWidget(action_group)
 
@@ -70,19 +67,9 @@ class IdentifyTab(QWidget):
         layout.addWidget(info_group, 1)
 
         self.button.clicked.connect(self.identify)
-        self.health_check.clicked.connect(self.health_check_clicked)
         self.cancel.clicked.connect(self.cancel_identify)
 
     def handle_serial_data(self, obj):
-        if obj.get("type") == "emmc.layout.result":
-            if self.health_check_busy:
-                self.health_check_busy = False
-                if obj.get("ok", False):
-                    self.console.log("eMMC HEALTH CHECK OK")
-                else:
-                    self.console.log("HEALTH CHECK ERROR: " + str(obj.get("msg", "unknown error")))
-                self.health_check.setEnabled(True)
-            return
         if obj.get("type") != "emmc.identify.result":
             return
         if not obj.get("ok", False):
@@ -258,14 +245,12 @@ class IdentifyTab(QWidget):
         if self.busy:
             return
         self.health_check_busy = True
-        self.health_check.setEnabled(False)
         try:
             self.emmc.layout()
         except Exception as e:
             self.console.log(f"HEALTH CHECK ERROR: {e}")
             self.health_check_busy = False
-            self.health_check.setEnabled(True)
-
+    
     def identify(self):
         if self.busy:
             return
