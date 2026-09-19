@@ -129,7 +129,7 @@ class SpecialTaskTab(QWidget):
             self.security_waiting_buildprop = False
             self.console.log("SECURITY TASK: scanning GPT...")
             try:
-                self.emmc.gpt()
+                self.emmc.gpt(False)
             except Exception as e:
                 self.security_waiting_gpt = False
                 self.console.log(f"SECURITY TASK ERROR: {e}")
@@ -160,7 +160,7 @@ class SpecialTaskTab(QWidget):
         self.security_current = None
         self.security_scan_only = False
         self.security_waiting_gpt = True
-        self.security_waiting_buildprop = True
+        self.security_waiting_buildprop = False
         self.console.log("SECURITY BACKUP: scanning GPT for security/identity partitions...")
         try:
             self.emmc.gpt()
@@ -234,15 +234,7 @@ class SpecialTaskTab(QWidget):
             if self.security_scan_only:
                 self.console.log(f"SECURITY TASK COMPLETE: {len(self.security_parts)} candidate partition(s)")
                 return
-            if self.security_waiting_buildprop:
-                return
             self._start_security_backup()
-            return
-
-        if typ == "emmc.buildprop.end" and self.security_waiting_buildprop:
-            self.security_waiting_buildprop = False
-            if self.security_busy and not self.security_waiting_gpt:
-                self._start_security_backup()
             return
 
         if typ == "emmc.dump.status" and self.security_busy:
