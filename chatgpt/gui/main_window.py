@@ -813,8 +813,10 @@ class MainWindow(QMainWindow):
             self.console.log(f"READ GPT ERROR: {e}")
 
     def main_health(self):
-        self.show_service(self.identify)
-        self.identify.health_check_clicked()
+        self.show_service(self.special)
+        index = self.special.task_names().index("eMMC Health Check")
+        self.special.select_task(index)
+        self.special.execute_task()
 
     def handle_serial_data(self, obj):
         if not isinstance(obj, dict):
