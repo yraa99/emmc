@@ -66,11 +66,9 @@ class MainTab(QWidget):
         grid.setVerticalSpacing(8)
 
         self.btn_health = self._button("eMMC Health Check", primary=True)
-        self.btn_extcsd = self._button("READ EXT_CSD")
         self.btn_cancel = self._button("CANCEL")
 
         grid.addWidget(self.btn_health, 0, 0)
-        grid.addWidget(self.btn_extcsd, 0, 1)
         grid.addWidget(self.btn_cancel, 1, 0)
         layout.addWidget(ops)
 
@@ -112,7 +110,6 @@ class MainTab(QWidget):
         layout.addStretch()
 
         self.btn_health.clicked.connect(lambda: self._call("health"))
-        self.btn_extcsd.clicked.connect(lambda: self._call("extcsd"))
         self.btn_cancel.clicked.connect(lambda: self._call("cancel"))
         for label, button in self.special_buttons.items():
             command = {
