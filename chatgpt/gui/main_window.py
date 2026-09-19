@@ -360,11 +360,11 @@ class MainWindow(QMainWindow):
 
     def _install_command_log_reset(self):
         for button in self.findChildren(QPushButton):
-            if button in {
+            if button in (
                 self.btn_cancel,
                 self.theme_button,
                 self.special_execute,
-            }:
+            ):
                 continue
             button.pressed.connect(self._clear_log_for_new_command)
 
