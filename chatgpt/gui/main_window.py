@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
     QTabWidget, QSplitter, QGroupBox, QComboBox, QProgressBar,
-    QSizePolicy, QStackedWidget
+    QSizePolicy, QStackedWidget, QLineEdit, QGridLayout, QFileDialog
 )
 from PyQt6.QtCore import Qt, QTimer, QDateTime
 
@@ -789,12 +789,13 @@ class MainWindow(QMainWindow):
         if not self.serial.is_connected():
             self.console.log("IDENTIFY: RP2040 is not connected")
             return
-        self.identify_sequence = True
+        # IDENTIFY is a standalone task. It must not implicitly launch GPT
+        # or open another tab; the result is routed to IdentifyTab by main.py.
+        self.identify_sequence = False
         try:
-            self.start_operation(15000, "IDENTIFY")
+            self.start_operation(30000, "IDENTIFY")
             self.emmc.identify()
         except Exception as e:
-            self.identify_sequence = False
             self.finish_operation(False, "IDENTIFY ERROR")
             self.console.log(f"IDENTIFY ERROR: {e}")
 
