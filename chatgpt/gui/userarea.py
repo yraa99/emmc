@@ -26,6 +26,9 @@ class UserAreaTab(QWidget):
         self.buildprop_busy = False
         self.buildprop_found = False
         self.gpt_count = 0
+        self.boot_sectors = 0
+        self.primary_meta_sectors = 34
+        self.meta_label = "PRIMARY GPT"
         self.gpt_timeout = QTimer(self)
         self.gpt_timeout.setSingleShot(True)
         self.gpt_timeout.timeout.connect(self.on_gpt_timeout)
@@ -107,6 +110,16 @@ class UserAreaTab(QWidget):
         self.read.clicked.connect(self.readPartition)
         self.write.clicked.connect(self.writePartition)
         self.stop.clicked.connect(self.stopRead)
+
+    def _add_meta_partitions(self):
+        if self.boot_sectors > 0:
+            self._add_partition("BOOT 1", 0, self.boot_sectors, "BOOT", "READY", False)
+            self.partitions[-1]["partition"] = 1
+            self._add_partition("BOOT 2", 0, self.boot_sectors, "BOOT", "READY", False)
+            self.partitions[-1]["partition"] = 2
+        self._add_partition(self.meta_label, 0, self.primary_meta_sectors, "METADATA", "READY", False)
+        if self.partitions:
+            self.partitions[-1]["metadata_only"] = True
 
     @staticmethod
     def classify(name):
@@ -288,10 +301,18 @@ class UserAreaTab(QWidget):
                 pass
             return
 
+        if typ == "emmc.layout.result":
+            if obj.get("ok"):
+                self.boot_sectors = int(obj.get("boot_bytes_each", 0)) // 512
+            return
+
         if typ == "emmc.gpt.begin":
             self.gpt_count = 0
             self.partitions.clear()
             self.table.setRowCount(0)
+            layout_type = str(obj.get("layout_type", "GPT")).upper()
+            self.meta_label = "PRELOADER" if layout_type == "PRELOADER" else "PRIMARY GPT"
+            self._add_meta_partitions()
             self.status.setText("Reading GPT...")
             return
 
@@ -410,6 +431,43 @@ class UserAreaTab(QWidget):
             self.console.log("READ: select a partition first")
             return
         if p["sectors"] <= 0 or p["start"] < 0:
+            return
+
+        if p.get("metadata_only"):
+            self.console.log(f"READ / BACKUP: {p['name']} metadata backup is not available through the user-area stream")
+            return
+
+        if p.get("partition") in (1, 2):
+            partition = int(p["partition"])
+            default = f"boot{partition}.bin"
+            path, _ = QFileDialog.getSaveFileName(
+                self, f"Save BOOT{partition} backup", default,
+                "Binary image (*.bin *.img);;All Files (*)"
+            )
+            if not path:
+                return
+            try:
+                self.dump_file = open(path, "w+b")
+                self.dump_file.truncate(p["sectors"] * 512)
+            except OSError as e:
+                self.dump_file = None
+                self.console.log(f"BOOT{partition} FILE ERROR: {e}")
+                return
+            self.dump_expected = p["sectors"] * 512
+            self.dump_received = 0
+            self.dump_segments = [(0, p["sectors"])]
+            self.dump_segment_index = 0
+            self.dump_file_base = 0
+            self.dump_total = p["sectors"]
+            self.reading = True
+            self.read.setEnabled(False)
+            self.scan.setEnabled(False)
+            self.stop.setEnabled(True)
+            try:
+                self.emmc.dump_start(0, p["sectors"], 512, True, 3, partition)
+            except Exception as e:
+                self.console.log(f"BOOT{partition} READ ERROR: {e}")
+                self.finish_read(False)
             return
 
         if p.get("logical"):
