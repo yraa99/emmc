@@ -176,76 +176,86 @@ class MainWindow(QMainWindow):
         self.console.log("Pico eMMC Tool initialized successfully.")
 
     def _wire_beta_functions_to_gui_tabs(self):
-        # MAIN tab: keep the exact yraa99/gui widgets, but route their actions
-        # to the beta service implementation instead of placeholder logging.
-        try:
-            self.tab_main.btn_write.clicked.disconnect()
-        except Exception:
-            pass
-        self.tab_main.btn_write.clicked.connect(self._beta_write)
+        """Connect the exact yraa99/gui widgets to pico-emmc-beta services.
 
-        button_map = {
-            "cmd_emmc_health": self.identify.health_check_clicked,
-            "cmd_extcsd_info": self.boot.readExtCSD,
-        }
-        for name, slot in button_map.items():
-            button = getattr(self.tab_main, name, None)
-            if button is None:
-                continue
+        The visual tab source files are intentionally untouched.  Some of the
+        visual source widgets do not expose button attributes, so buttons are
+        located by their visible text instead of modifying the source widgets.
+        """
 
+        def find_button(widget, text):
+            for button in widget.findChildren(QPushButton):
+                if button.text().strip() == text:
+                    return button
+            return None
+
+        def replace_click(button, slot):
+            if button is None or slot is None:
+                return
             try:
                 button.clicked.disconnect()
-            except Exception:
+            except (TypeError, RuntimeError):
                 pass
             button.clicked.connect(slot)
 
-        # The beta branch has these SPECIAL TASK controls but they are
-        # intentionally disabled because the active firmware does not expose
-        # safe implementations. Preserve that state rather than inventing a
-        # fake operation.
-        for name in (
-            "cmd_set_boot_partition", "cmd_partition_config",
-            "cmd_rpmb_info", "cmd_factory_reset",
-            "cmd_factory_reset_safe", "cmd_frp_reset", "cmd_frp_samsung"
-        ):
-            button = getattr(self.tab_main, name, None)
-            if button is not None:
-                button.setEnabled(False)
-                button.setToolTip(
-                    "Disabled: pico-emmc-beta firmware does not expose this safe protocol."
-                )
-
-        # USER AREA: exact visual widget remains active. Its actual GPT/read
-        # engine is the beta UserAreaTab. Serial results are mirrored into the
-        # visible text box.
-        self._userarea_backend_handler = self.userarea.handle_serial_data
-
-        # ADB/FASTBOOT: route the visible yraa99/gui buttons to the beta
-        # ADB/Fastboot implementation.
-        adb_pairs = (
-            ("btn_adb_devices", "scan_adb"),
-            ("btn_reboot_bootloader", "bootloader"),
-            ("btn_fastboot_devices", "scan_fastboot"),
+        # MAIN — exact yraa99/gui buttons, real beta operations underneath.
+        replace_click(
+            find_button(self.tab_main, "WRITE"),
+            self._beta_write,
         )
-        for visible_name, backend_name in adb_pairs:
-            button = getattr(self.tab_adb, visible_name, None)
-            method = getattr(self.adb_backend, backend_name, None)
-            if button is not None and method is not None:
+        replace_click(
+            find_button(self.tab_main, "eMMC Health Check"),
+            self.identify.health_check_clicked,
+        )
+        replace_click(
+            find_button(self.tab_main, "ExtCSD Info"),
+            self.boot.readExtCSD,
+        )
+
+        # These controls exist in the visual source, but pico-emmc-beta does
+        # not provide a corresponding safe protocol. Keep them visible while
+        # preventing the visual placeholder handlers from pretending success.
+        for label in (
+            "Set Boot Partition",
+            "Partition Config",
+            "RPMB Info",
+            "Factory Reset",
+            "Factory Reset Safe",
+            "FRP Reset",
+            "FRP Samsung",
+        ):
+            button = find_button(self.tab_main, label)
+            if button is not None:
                 try:
                     button.clicked.disconnect()
-                except Exception:
+                except (TypeError, RuntimeError):
                     pass
-                button.clicked.connect(method)
+                button.setEnabled(False)
+                button.setToolTip(
+                    "Disabled: pico-emmc-beta does not expose this safe protocol."
+                )
 
-        # FACTORY IMAGE: use the beta factory backend for the actual action.
-        # The yraa99/gui file picker remains the visible widget.
-        try:
-            self.tab_factory.btn_flash.clicked.disconnect()
-        except Exception:
-            pass
-        self.tab_factory.btn_flash.clicked.connect(
-            lambda: self.factory_backend.flash_disabled()
-        )
+        # USER AREA — keep the exact visual widget and forward packets to the
+        # real beta User Area service.
+        self._userarea_backend_handler = self.userarea.handle_serial_data
+
+        # ADB FASTBOOT — map the exact visual buttons by their labels to the
+        # real beta ADB/Fastboot service.  The beta service already implements
+        # its own complete command set.
+        adb_map = {
+            "ADB Devices": "scan_adb",
+            "Reboot to Bootloader": "bootloader",
+            "Fastboot Devices": "scan_fastboot",
+        }
+        for label, method_name in adb_map.items():
+            button = find_button(self.tab_adb, label)
+            method = getattr(self.adb_backend, method_name, None)
+            replace_click(button, method)
+
+        # FACTORY IMAGE — keep the exact visual button. The beta backend is
+        # read/inspect-only and explicitly disables flashing.
+        factory_button = find_button(self.tab_factory, "Flash Factory Image")
+        replace_click(factory_button, self.factory_backend.flash_disabled)
 
     def _beta_write(self):
         # yraa99/gui exposes WRITE; pico-emmc-beta has no active safe write
