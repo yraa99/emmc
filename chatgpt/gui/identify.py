@@ -45,7 +45,7 @@ class IdentifyTab(QWidget):
         info_layout = QVBoxLayout(info_group)
         info_layout.setContentsMargins(6, 6, 6, 6)
 
-        self.table = QTableWidget(17, 2)
+        self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["PARAMETER", "VALUE"])
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -61,6 +61,7 @@ class IdentifyTab(QWidget):
             "Bus Width", "Clock", "BOOT1 Read", "BOOT2 Read",
             "EXT_CSD Read", "USERAREA Read", "Status"
         ]
+        self.table.setRowCount(len(fields))
         for i, f in enumerate(fields):
             self.table.setItem(i, 0, QTableWidgetItem(f))
 
