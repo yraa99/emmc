@@ -25,6 +25,7 @@ class UserAreaTab(QWidget):
         self.gpt_busy = False
         self.buildprop_busy = False
         self.buildprop_found = False
+        self.gpt_count = 0
         self.gpt_timeout = QTimer(self)
         self.gpt_timeout.setSingleShot(True)
         self.gpt_timeout.timeout.connect(self.on_gpt_timeout)
@@ -202,10 +203,11 @@ class UserAreaTab(QWidget):
         if not mac:
             self.console.log("MAC: Not exposed by build.prop")
 
-        if self.partitions:
-            total = sum(p["sectors"] for p in self.partitions if not p["logical"])
-            if total:
-                self.console.log(f"Internal storage : {total * 512 / 1024**3:.2f} GB")
+        physical = [p for p in self.partitions if not p["logical"]]
+        userdata = [p for p in physical if p["name"].lower() in {"userdata", "user_data", "data"}]
+        storage_sectors = max((p["sectors"] for p in userdata), default=sum(p["sectors"] for p in physical))
+        if storage_sectors:
+            self.console.log(f"Internal storage : {storage_sectors * 512 / 1024**3:.2f} GB")
 
     def handle_serial_data(self, obj):
         typ = obj.get("type")
@@ -264,6 +266,9 @@ class UserAreaTab(QWidget):
             return
 
         if typ == "emmc.gpt.end":
+            if obj.get("ok", True):
+                self.gpt_count = int(obj.get("partitions", self.gpt_count))
+                self.console.log(f"READ GPT OK : {self.gpt_count} user-area partitions")
             if not self.buildprop_busy:
                 self.gpt_busy = False
                 self.gpt_timeout.stop()
@@ -272,6 +277,8 @@ class UserAreaTab(QWidget):
             return
 
         if typ == "emmc.gpt.result":
+            if obj.get("ok", False):
+                return
             if not obj.get("ok", False):
                 self.gpt_busy = False
                 self.buildprop_busy = False
