@@ -59,7 +59,7 @@ class IdentifyTab(QWidget):
             "Serial Number", "Manufacturing Date", "CID", "CSD",
             "EXT_CSD", "EXT_CSD Revision", "Capacity", "Sector Size",
             "Bus Width", "Clock", "BOOT1 Read", "BOOT2 Read",
-            "EXT_CSD Read", "USERAREA Read", "Status"
+            "EXT_CSD Read", "USERAREA Read", "BUILD.PROP", "Status"
         ]
         self.table.setRowCount(len(fields))
         for i, f in enumerate(fields):
@@ -72,7 +72,34 @@ class IdentifyTab(QWidget):
         self.cancel.clicked.connect(self.cancel_identify)
 
     def handle_serial_data(self, obj):
-        if obj.get("type") != "emmc.identify.result":
+        typ = obj.get("type")
+        if typ == "emmc.identify.area":
+            area = str(obj.get("area", ""))
+            state = str(obj.get("state", ""))
+            if state == "start":
+                self.console.log(f"IDENTIFY READ START: {area}")
+            elif state == "complete":
+                self.console.log(f"IDENTIFY READ COMPLETE: {area}")
+            return
+        if typ == "emmc.identify.progress":
+            self.console.log(
+                f"IDENTIFY {obj.get('area', '')}: {int(obj.get('percent', 0))}%"
+            )
+            return
+        if typ == "emmc.buildprop.begin":
+            self.set_value("BUILD.PROP", f"READING {obj.get('partition', 'system')}")
+            return
+        if typ == "emmc.buildprop.result":
+            self.set_value(
+                "BUILD.PROP",
+                f"OK ({obj.get('partition', 'build.prop')})" if obj.get("ok") else "FAILED"
+            )
+            return
+        if typ == "emmc.buildprop.end":
+            if obj.get("ok"):
+                self.set_value("BUILD.PROP", "OK")
+            return
+        if typ != "emmc.identify.result":
             return
         if not obj.get("ok", False):
             self.console.log("IDENTIFY ERROR: " + str(obj.get("msg", "unknown error")))
@@ -255,7 +282,7 @@ class IdentifyTab(QWidget):
         self.cancel.setEnabled(True)
         try:
             self.emmc.identify()
-            self.timeout.start(30000)
+            self.timeout.start(24 * 60 * 60 * 1000)
         except Exception as e:
             self.console.log(f"IDENTIFY ERROR: {e}")
             self.finish()
@@ -270,7 +297,7 @@ class IdentifyTab(QWidget):
         self.finish()
 
     def on_timeout(self):
-        self.console.log("IDENTIFY TIMEOUT (30s) - RP2040 tidak memberi hasil")
+        self.console.log("IDENTIFY TIMEOUT (24h) - RP2040 tidak memberi hasil")
         self.finish()
 
     def finish(self):
