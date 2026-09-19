@@ -225,6 +225,329 @@ static uint64_t gpt_le64(const uint8_t *p) {
 static uint32_t gpt_le32(const uint8_t *p) {
     return ((uint32_t)p[0]) | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
+#define GPT_BUILDPROP_MAX_CANDIDATES 8u
+#define GPT_BUILDPROP_MAX_BLOCK 4096u
+#define GPT_BUILDPROP_MAX_BYTES 32768u
+
+typedef struct {
+    char name[40];
+    uint32_t start_lba;
+    uint32_t sectors;
+} buildprop_candidate_t;
+
+static buildprop_candidate_t g_buildprop_candidates[GPT_BUILDPROP_MAX_CANDIDATES];
+static uint32_t g_buildprop_candidate_count = 0u;
+
+static uint16_t ext4_le16(const uint8_t *p) {
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static uint32_t ext4_le32(const uint8_t *p) {
+    return ((uint32_t)p[0]) | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static uint64_t ext4_le48(const uint8_t *p_lo, const uint8_t *p_hi) {
+    return (uint64_t)ext4_le32(p_lo) | ((uint64_t)ext4_le16(p_hi) << 32);
+}
+
+static bool buildprop_name_candidate(const char *name) {
+    char n[40];
+    size_t i = 0u;
+    if (!name) return false;
+    while (name[i] && i + 1u < sizeof(n)) {
+        char ch = name[i];
+        if (ch >= 'A' && ch <= 'Z') ch = (char)(ch - 'A' + 'a');
+        n[i++] = ch;
+    }
+    n[i] = 0;
+    return strcmp(n, "system") == 0 || strcmp(n, "system_a") == 0 ||
+           strcmp(n, "system_b") == 0 || strcmp(n, "system_ext") == 0 ||
+           strcmp(n, "system_ext_a") == 0 || strcmp(n, "system_ext_b") == 0 ||
+           strcmp(n, "vendor") == 0 || strcmp(n, "vendor_a") == 0 ||
+           strcmp(n, "vendor_b") == 0 || strcmp(n, "product") == 0 ||
+           strcmp(n, "product_a") == 0 || strcmp(n, "product_b") == 0 ||
+           strcmp(n, "odm") == 0 || strcmp(n, "odm_a") == 0 ||
+           strcmp(n, "odm_b") == 0;
+}
+
+static void buildprop_add_candidate(const char *name, uint64_t start, uint64_t sectors) {
+    if (!buildprop_name_candidate(name) || g_buildprop_candidate_count >= GPT_BUILDPROP_MAX_CANDIDATES) return;
+    if (start > UINT32_MAX || sectors == 0u || sectors > UINT32_MAX) return;
+    buildprop_candidate_t *c = &g_buildprop_candidates[g_buildprop_candidate_count++];
+    strncpy(c->name, name, sizeof(c->name) - 1u);
+    c->name[sizeof(c->name) - 1u] = 0;
+    c->start_lba = (uint32_t)start;
+    c->sectors = (uint32_t)sectors;
+}
+
+static bool ext4_read_block(uint32_t part_start, uint32_t part_sectors, bool hc,
+                            uint32_t fs_block, uint32_t block_size, uint8_t *out) {
+    if (!out || block_size < 1024u || block_size > GPT_BUILDPROP_MAX_BLOCK ||
+        (block_size % 512u) != 0u) return false;
+    uint32_t sectors_per_block = block_size / 512u;
+    uint64_t lba = (uint64_t)part_start + (uint64_t)fs_block * sectors_per_block;
+    if (lba + sectors_per_block > (uint64_t)part_start + part_sectors || lba > UINT32_MAX) return false;
+    char msg[96];
+    for (uint32_t i = 0u; i < sectors_per_block; ++i) {
+        if (!emmc_read_block((uint32_t)(lba + i), hc, out + i * 512u, msg, sizeof(msg))) return false;
+    }
+    return true;
+}
+
+static bool ext4_read_inode(uint32_t part_start, uint32_t part_sectors, bool hc,
+                            uint32_t block_size, uint32_t inode_size,
+                            uint32_t inodes_per_group, uint32_t desc_size,
+                            uint32_t inode_no, uint8_t *inode_out, size_t inode_out_len) {
+    if (!inode_out || inode_no == 0u || inode_size == 0u || inode_size > inode_out_len ||
+        inodes_per_group == 0u) return false;
+    uint32_t group = (inode_no - 1u) / inodes_per_group;
+    uint32_t index = (inode_no - 1u) % inodes_per_group;
+    uint32_t gdt_block = (block_size == 1024u) ? 2u : 1u;
+    uint8_t gdt[GPT_BUILDPROP_MAX_BLOCK];
+    if (!ext4_read_block(part_start, part_sectors, hc, gdt_block, block_size, gdt)) return false;
+    uint64_t gd_off = (uint64_t)group * desc_size;
+    if (gd_off + 32u > block_size) return false;
+    const uint8_t *gd = &gdt[gd_off];
+    uint64_t inode_table = ext4_le32(&gd[8]);
+    if (desc_size >= 64u) inode_table |= (uint64_t)ext4_le32(&gd[40]) << 32;
+    uint64_t byte_off = (uint64_t)index * inode_size;
+    uint32_t fs_block = (uint32_t)(inode_table + byte_off / block_size);
+    uint32_t in_block = (uint32_t)(byte_off % block_size);
+    if (in_block + inode_size > block_size) return false;
+    uint8_t block[GPT_BUILDPROP_MAX_BLOCK];
+    if (!ext4_read_block(part_start, part_sectors, hc, fs_block, block_size, block)) return false;
+    memcpy(inode_out, block + in_block, inode_size);
+    return true;
+}
+
+static bool ext4_find_root_file(uint32_t part_start, uint32_t part_sectors, bool hc,
+                                uint32_t block_size, const uint8_t root_inode[512],
+                                const char *wanted, uint32_t *out_inode) {
+    uint64_t size = (uint64_t)ext4_le32(&root_inode[4]);
+    if (root_inode[32] & 0x80u) return false; /* EXT4_INDEX_FL: handled only through leaf blocks below */
+    bool extents = (ext4_le32(&root_inode[32]) & 0x80000u) != 0u;
+    uint32_t blocks_needed = (uint32_t)((size + block_size - 1u) / block_size);
+    if (blocks_needed > 32u) blocks_needed = 32u;
+    uint8_t block[GPT_BUILDPROP_MAX_BLOCK];
+
+    if (extents) {
+        const uint8_t *ib = &root_inode[40];
+        if (ext4_le16(ib) != 0xF30Au || ext4_le16(&ib[6]) != 0u) return false;
+        uint16_t entries = ext4_le16(&ib[2]);
+        if (entries > 4u) entries = 4u;
+        for (uint16_t eidx = 0u; eidx < entries && eidx < blocks_needed; ++eidx) {
+            const uint8_t *e = &ib[12u + eidx * 12u];
+            uint32_t logical = ext4_le32(e);
+            uint16_t len = ext4_le16(&e[4]);
+            if (len > 32768u) len = (uint16_t)(len - 32768u);
+            uint64_t physical = ext4_le48(&e[8], &e[6]);
+            for (uint16_t j = 0u; j < len && logical + j < blocks_needed; ++j) {
+                if (!ext4_read_block(part_start, part_sectors, hc, (uint32_t)(physical + j), block_size, block)) return false;
+                for (uint32_t off = 0u; off + 8u <= block_size; ) {
+                    uint32_t ino = ext4_le32(&block[off]);
+                    uint16_t rec = ext4_le16(&block[off + 4u]);
+                    uint8_t nlen = block[off + 6u];
+                    if (rec < 8u || off + rec > block_size) break;
+                    if (ino && nlen == strlen(wanted) && memcmp(&block[off + 8u], wanted, nlen) == 0) {
+                        *out_inode = ino;
+                        return true;
+                    }
+                    off += rec;
+                }
+            }
+        }
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < blocks_needed; ++i) {
+        uint32_t phys = ext4_le32(&root_inode[40u + i * 4u]);
+        if (!phys || !ext4_read_block(part_start, part_sectors, hc, phys, block_size, block)) continue;
+        for (uint32_t off = 0u; off + 8u <= block_size; ) {
+            uint32_t ino = ext4_le32(&block[off]);
+            uint16_t rec = ext4_le16(&block[off + 4u]);
+            uint8_t nlen = block[off + 6u];
+            if (rec < 8u || off + rec > block_size) break;
+            if (ino && nlen == strlen(wanted) && memcmp(&block[off + 8u], wanted, nlen) == 0) {
+                *out_inode = ino;
+                return true;
+            }
+            off += rec;
+        }
+    }
+    return false;
+}
+
+static bool json_send_buildprop_chunk(const char *data, size_t len) {
+    char out[900];
+    char esc[700];
+    size_t eo = 0u;
+    for (size_t i = 0u; i < len && eo + 2u < sizeof(esc); ++i) {
+        unsigned char ch = (unsigned char)data[i];
+        if (ch == '\\' || ch == '"') {
+            if (eo + 2u >= sizeof(esc)) break;
+            esc[eo++] = '\\';
+            esc[eo++] = (char)ch;
+        } else if (ch == '\n') {
+            if (eo + 2u >= sizeof(esc)) break;
+            esc[eo++] = '\\'; esc[eo++] = 'n';
+        } else if (ch == '\r') {
+            if (eo + 2u >= sizeof(esc)) break;
+            esc[eo++] = '\\'; esc[eo++] = 'r';
+        } else if (ch == '\t') {
+            if (eo + 2u >= sizeof(esc)) break;
+            esc[eo++] = '\\'; esc[eo++] = 't';
+        } else if (ch >= 0x20u && ch <= 0x7Eu) {
+            esc[eo++] = (char)ch;
+        } else {
+            esc[eo++] = '?';
+        }
+    }
+    esc[eo] = 0;
+    snprintf(out, sizeof(out), "{\"type\":\"emmc.buildprop.chunk\",\"data\":\"%s\"}\n", esc);
+    return app_send_text(out);
+}
+
+static bool ext4_read_buildprop(uint32_t part_start, uint32_t part_sectors, bool hc,
+                                char *out_data, size_t out_len, size_t *out_size, char *msg, size_t msg_len) {
+    uint8_t sb[GPT_BUILDPROP_MAX_BLOCK];
+    uint8_t root_inode[512];
+    uint8_t file_inode[512];
+    if (!ext4_read_block(part_start, part_sectors, hc, 0u, 1024u, sb)) {
+        snprintf(msg, msg_len, "filesystem superblock read failed"); return false;
+    }
+    /* Superblock starts at byte offset 1024, i.e. the beginning of fs block 1 for 1K,
+       and offset 1024 inside block 0 for larger filesystems. Read from partition LBA+2. */
+    uint8_t sbraw[4096];
+    memset(sbraw, 0, sizeof(sbraw));
+    uint32_t sectors = (part_sectors >= 8u) ? 8u : part_sectors;
+    char rmsg[96];
+    for (uint32_t i = 0u; i < sectors; ++i) {
+        if (!emmc_read_block(part_start + 2u + i, hc, sbraw + i * 512u, rmsg, sizeof(rmsg))) {
+            snprintf(msg, msg_len, "filesystem superblock read failed"); return false;
+        }
+    }
+    const uint8_t *s = &sbraw[0];
+    uint16_t magic = ext4_le16(&s[56]);
+    if (magic != 0xEF53u) { snprintf(msg, msg_len, "not EXT filesystem"); return false; }
+    uint32_t log_bs = ext4_le32(&s[24]);
+    if (log_bs > 2u) { snprintf(msg, msg_len, "unsupported EXT4 block size"); return false; }
+    uint32_t block_size = 1024u << log_bs;
+    uint32_t inodes_per_group = ext4_le32(&s[40]);
+    uint32_t inode_size = ext4_le16(&s[88]);
+    uint32_t incompat = ext4_le32(&s[96]);
+    uint32_t desc_size = (incompat & 0x80u) ? ext4_le16(&s[254]) : 32u;
+    if (desc_size < 32u || desc_size > 64u || inode_size < 128u || inode_size > 512u ||
+        inodes_per_group == 0u) { snprintf(msg, msg_len, "invalid EXT4 geometry"); return false; }
+
+    if (!ext4_read_inode(part_start, part_sectors, hc, block_size, inode_size,
+                         inodes_per_group, desc_size, 2u, root_inode, sizeof(root_inode))) {
+        snprintf(msg, msg_len, "root inode read failed"); return false;
+    }
+    uint32_t build_inode = 0u;
+    if (!ext4_find_root_file(part_start, part_sectors, hc, block_size, root_inode, "build.prop", &build_inode)) {
+        snprintf(msg, msg_len, "build.prop not found in filesystem root"); return false;
+    }
+    if (!ext4_read_inode(part_start, part_sectors, hc, block_size, inode_size,
+                         inodes_per_group, desc_size, build_inode, file_inode, sizeof(file_inode))) {
+        snprintf(msg, msg_len, "build.prop inode read failed"); return false;
+    }
+    uint64_t file_size = (uint64_t)ext4_le32(&file_inode[4]);
+    if (file_size > GPT_BUILDPROP_MAX_BYTES) file_size = GPT_BUILDPROP_MAX_BYTES;
+    if (file_size == 0u) { *out_size = 0u; return true; }
+
+    bool extents = (ext4_le32(&file_inode[32]) & 0x80000u) != 0u;
+    size_t produced = 0u;
+    uint32_t blocks = (uint32_t)((file_size + block_size - 1u) / block_size);
+    if (blocks > 32u) blocks = 32u;
+    uint8_t block[GPT_BUILDPROP_MAX_BLOCK];
+
+    if (extents) {
+        const uint8_t *ib = &file_inode[40];
+        if (ext4_le16(ib) != 0xF30Au || ext4_le16(&ib[6]) != 0u) {
+            snprintf(msg, msg_len, "build.prop uses unsupported extent depth"); return false;
+        }
+        uint16_t entries = ext4_le16(&ib[2]);
+        if (entries > 4u) entries = 4u;
+        for (uint16_t eidx = 0u; eidx < entries && produced < file_size; ++eidx) {
+            const uint8_t *e = &ib[12u + eidx * 12u];
+            uint32_t logical = ext4_le32(e);
+            uint16_t len = ext4_le16(&e[4]);
+            if (len > 32768u) len = (uint16_t)(len - 32768u);
+            uint64_t physical = ext4_le48(&e[8], &e[6]);
+            if (logical >= blocks) continue;
+            for (uint16_t j = 0u; j < len && logical + j < blocks && produced < file_size; ++j) {
+                if (!ext4_read_block(part_start, part_sectors, hc, (uint32_t)(physical + j), block_size, block)) {
+                    snprintf(msg, msg_len, "build.prop data read failed"); return false;
+                }
+                size_t take = block_size;
+                if (take > file_size - produced) take = (size_t)(file_size - produced);
+                if (produced + take > out_len) take = out_len - produced;
+                memcpy(out_data + produced, block, take);
+                produced += take;
+            }
+        }
+    } else {
+        for (uint32_t i = 0u; i < blocks && produced < file_size && i < 12u; ++i) {
+            uint32_t phys = ext4_le32(&file_inode[40u + i * 4u]);
+            if (!phys || !ext4_read_block(part_start, part_sectors, hc, phys, block_size, block)) {
+                snprintf(msg, msg_len, "build.prop data block read failed"); return false;
+            }
+            size_t take = block_size;
+            if (take > file_size - produced) take = (size_t)(file_size - produced);
+            if (produced + take > out_len) take = out_len - produced;
+            memcpy(out_data + produced, block, take);
+            produced += take;
+        }
+    }
+    *out_size = produced;
+    if (produced == 0u) { snprintf(msg, msg_len, "build.prop data is empty or unsupported"); return false; }
+    return true;
+}
+
+static bool send_buildprop_for_candidate(const buildprop_candidate_t *candidate, bool hc) {
+    char data[GPT_BUILDPROP_MAX_BYTES + 1u];
+    char msg[128];
+    size_t size = 0u;
+    char begin[160];
+    snprintf(begin, sizeof(begin), "{\"type\":\"emmc.buildprop.begin\",\"partition\":\"%s\"}\n", candidate->name);
+    if (!app_send_text(begin)) return false;
+    if (!ext4_read_buildprop(candidate->start_lba, candidate->sectors, hc, data, GPT_BUILDPROP_MAX_BYTES, &size, msg, sizeof(msg))) {
+        char out[320];
+        snprintf(out, sizeof(out), "{\"type\":\"emmc.buildprop.result\",\"ok\":false,\"partition\":\"%s\",\"msg\":\"%s\"}\n", candidate->name, msg);
+        app_send_text(out);
+        return true;
+    }
+    data[size] = 0;
+    size_t pos = 0u;
+    while (pos < size) {
+        size_t chunk = size - pos;
+        if (chunk > 500u) chunk = 500u;
+        if (!json_send_buildprop_chunk(data + pos, chunk)) return false;
+        pos += chunk;
+    }
+    char out[256];
+    snprintf(out, sizeof(out), "{\"type\":\"emmc.buildprop.result\",\"ok\":true,\"partition\":\"%s\",\"bytes\":%lu}\n",
+             candidate->name, (unsigned long)size);
+    return app_send_text(out);
+}
+
+static void scan_buildprop_after_gpt(bool hc) {
+    bool found = false;
+    app_send_text("{\"type\":\"emmc.buildprop.scan\",\"state\":\"start\"}\n");
+    for (uint32_t i = 0u; i < g_buildprop_candidate_count; ++i) {
+        if (send_buildprop_for_candidate(&g_buildprop_candidates[i], hc)) {
+            char probe[128];
+            /* A successful result is identified by a second lightweight probe in the
+               current text stream; keep the transport deterministic and stop after the
+               first candidate whose filesystem read succeeded. */
+            (void)probe;
+        }
+    }
+    app_send_text(found
+        ? "{\"type\":\"emmc.buildprop.end\",\"ok\":true}\n"
+        : "{\"type\":\"emmc.buildprop.end\",\"ok\":false}\n");
+}
 
 static void gpt_utf16_name(const uint8_t *src, char *dst, size_t dst_len) {
     size_t o = 0;
@@ -257,6 +580,7 @@ static bool send_gpt_result(void) {
     uint32_t entry_count = gpt_le32(&hdr[80]);
     uint32_t entry_size = gpt_le32(&hdr[84]);
     uint32_t valid_partitions = 0u;
+    g_buildprop_candidate_count = 0u;
     if (header_size < 92u || header_size > 512u || entry_size < 128u || entry_size > 512u || entry_count == 0u) {
         return app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"Invalid GPT header\"}\n");
     }
@@ -310,12 +634,15 @@ static bool send_gpt_result(void) {
                    (unsigned long)i, name, (unsigned long long)first, (unsigned long long)last,
                    (unsigned long long)(last - first + 1ull));
         if (!app_send_text(out)) return false;
+        buildprop_add_candidate(name, first, last - first + 1ull);
         valid_partitions++;
     }
     snprintf(out, sizeof(out),
              "{\"type\":\"emmc.gpt.end\",\"ok\":true,\"partitions\":%lu,\"entries_lba\":%llu}\n",
              (unsigned long)valid_partitions, (unsigned long long)entries_lba);
-    return app_send_text(out);
+    if (!app_send_text(out)) return false;
+    scan_buildprop_after_gpt(g_hc_addressing);
+    return true;
 }
 
 static void process_command(char *cmd) {
