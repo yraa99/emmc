@@ -527,11 +527,15 @@ static bool ext4_scan_htree_node(const buildprop_candidate_t *candidate, bool hc
     uint16_t entries = (uint16_t)(count - 1u);
     uint16_t max_entries = (uint16_t)((block_size - 0x12u) / 8u);
     if (entries > max_entries) entries = max_entries;
-
+    uint32_t children[340];
+    if (entries > 340u) entries = 340u;
     for (uint16_t i = 0u; i < entries; ++i) {
-        uint32_t child = ext4_le32(&g_ext4_block[0x12u + i * 8u + 4u]);
-        if (child && ext4_scan_htree_node(candidate, hc, block_size, child,
-                                          (uint8_t)(depth - 1u), wanted, out_inode)) {
+        children[i] = ext4_le32(&g_ext4_block[0x12u + i * 8u + 4u]);
+    }
+    for (uint16_t i = 0u; i < entries; ++i) {
+        if (children[i] &&
+            ext4_scan_htree_node(candidate, hc, block_size, children[i],
+                                 (uint8_t)(depth - 1u), wanted, out_inode)) {
             return true;
         }
     }
@@ -558,10 +562,15 @@ static bool ext4_scan_directory_for_name(const buildprop_candidate_t *candidate,
             if (indirect_levels <= 3u && count >= 2u) {
                 uint16_t entries = (uint16_t)(count - 1u);
                 if (entries > max_entries) entries = max_entries;
+                if (entries > 340u) entries = 340u;
+                uint32_t children[340];
                 for (uint16_t i = 0u; i < entries; ++i) {
-                    uint32_t child = ext4_le32(&g_ext4_block[0x28u + i * 8u + 4u]);
-                    if (child && ext4_scan_htree_node(candidate, hc, block_size, child,
-                                                      indirect_levels, wanted, out_inode)) {
+                    children[i] = ext4_le32(&g_ext4_block[0x28u + i * 8u + 4u]);
+                }
+                for (uint16_t i = 0u; i < entries; ++i) {
+                    if (children[i] &&
+                        ext4_scan_htree_node(candidate, hc, block_size, children[i],
+                                             indirect_levels, wanted, out_inode)) {
                         return true;
                     }
                 }
