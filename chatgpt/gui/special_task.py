@@ -1,123 +1,101 @@
-from PyQt6.QtWidgets import *
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QComboBox, QGroupBox, QTextEdit
+)
+from PyQt6.QtCore import Qt
 
 
 class SpecialTaskTab(QWidget):
+    """UFI-style eMMC special-task catalogue.
+
+    The catalogue mirrors eMMC tasks documented by UFI Box. Actions that
+    require firmware protocols not implemented by this RP2040 project stay
+    disabled instead of pretending to work.
+    """
+
+    TASKS = [
+        ("Update eMMC5.x Firmware", False),
+        ("Read eMMC Firmware / FFU", False),
+        ("Secure Wipe - TRIM", False),
+        ("Secure Wipe - Sanitize", False),
+        ("eMMC Full Reset", False),
+        ("Force Boot Mode", False),
+        ("Resize User Partition", False),
+        ("Repair CID", False),
+        ("NAND Test", False),
+    ]
 
     def __init__(self, emmc, console):
-
         super().__init__()
-
         self.emmc = emmc
         self.console = console
-
         self.setup()
 
-
+    @classmethod
+    def task_names(cls):
+        return [name for name, _ in cls.TASKS]
 
     def setup(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
-        layout = QVBoxLayout()
+        title = QLabel("SPECIAL TASK")
+        title.setObjectName("section_title")
+        layout.addWidget(title)
 
-
-        title = QLabel(
-            "SPECIAL TASK"
+        info = QLabel(
+            "UFI eMMC special-task catalogue. "
+            "Tasks without an RP2040 protocol are shown but kept disabled."
         )
+        info.setWordWrap(True)
+        layout.addWidget(info)
 
+        self.task_combo = QComboBox()
+        for name, enabled in self.TASKS:
+            self.task_combo.addItem(name)
+            self.task_combo.model().item(self.task_combo.count() - 1).setEnabled(enabled)
+        layout.addWidget(self.task_combo)
 
-        self.ffu = QPushButton(
-            "FFU MODE"
-        )
+        self.description = QTextEdit()
+        self.description.setReadOnly(True)
+        self.description.setMinimumHeight(110)
+        layout.addWidget(self.description)
 
-
-        self.setBoot = QPushButton(
-            "SET BOOT PARTITION"
-        )
-
-
-        self.partition = QPushButton(
-            "PARTITION CONFIG"
-        )
-
-
-        self.rpmb = QPushButton(
-            "RPMB INFO"
-        )
-
-
-        self.security = QPushButton(
-            "SECURITY TASK"
-        )
-
-
-
-        self.ffu.clicked.connect(
-            lambda:
-            self.command(
-                "FFU"
-            )
-        )
-
-
-        self.setBoot.clicked.connect(
-            lambda:
-            self.command(
-                "SET_BOOT"
-            )
-        )
-
-
-        self.partition.clicked.connect(
-            lambda:
-            self.command(
-                "PARTITION_CONFIG"
-            )
-        )
-
-
-        self.rpmb.clicked.connect(
-            lambda:
-            self.command(
-                "RPMB_INFO"
-            )
-        )
-
-
-        self.security.clicked.connect(
-            lambda:
-            self.command(
-                "SECURITY"
-            )
-        )
-
-
-
-        layout.addWidget(
-            title
-        )
-
-
-        actions = QGridLayout()
-        actions.setHorizontalSpacing(8)
-        actions.setVerticalSpacing(8)
-        buttons = (self.ffu, self.setBoot, self.partition, self.rpmb, self.security)
-        for index, button in enumerate(buttons):
-            button.setMinimumHeight(30)
-            button.setMinimumWidth(170)
-            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            button.setEnabled(False)
-            button.setToolTip("Belum tersedia pada firmware USB CDC eMMC saat ini.")
-            actions.addWidget(button, index // 2, index % 2)
+        actions = QHBoxLayout()
+        self.execute = QPushButton("EXECUTE")
+        self.execute.setEnabled(False)
+        self.backup = QPushButton("SELECT FILE")
+        self.backup.setEnabled(False)
+        actions.addWidget(self.execute)
+        actions.addWidget(self.backup)
         layout.addLayout(actions)
+        layout.addStretch(1)
 
+        self.task_combo.currentIndexChanged.connect(self.describe_task)
+        self.execute.clicked.connect(self.execute_task)
+        self.describe_task(0)
 
-        layout.addStretch()
+    def select_task(self, index):
+        if 0 <= index < self.task_combo.count():
+            self.task_combo.setCurrentIndex(index)
 
+    def describe_task(self, index):
+        if index < 0 or index >= len(self.TASKS):
+            return
+        name, enabled = self.TASKS[index]
+        if enabled:
+            text = f"{name}\n\nAvailable in the current RP2040 firmware."
+        else:
+            text = (
+                f"{name}\n\n"
+                "UFI provides this task, but the current RP2040 firmware "
+                "does not expose a safe command for it yet. "
+                "No destructive/fake command is sent."
+            )
+        self.description.setPlainText(text)
+        self.execute.setEnabled(enabled)
 
-        self.setLayout(
-            layout
-        )
-
-
-
-    def command(self,cmd):
-        self.console.log(f"SPECIAL TASK : {cmd} belum tersedia pada firmware aktif")
+    def execute_task(self):
+        name = self.task_combo.currentText()
+        self.console.log(f"SPECIAL TASK: {name} is not implemented in RP2040 firmware")
