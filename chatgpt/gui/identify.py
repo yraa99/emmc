@@ -8,6 +8,7 @@ class IdentifyTab(QWidget):
         self.emmc = emmc
         self.console = console
         self.busy = False
+        self.buildprop_lines = []
         self.timeout = QTimer(self)
         self.timeout.setSingleShot(True)
         self.timeout.timeout.connect(self.on_timeout)
@@ -87,7 +88,16 @@ class IdentifyTab(QWidget):
             )
             return
         if typ == "emmc.buildprop.begin":
-            self.set_value("BUILD.PROP", f"READING {obj.get('partition', 'system')}")
+            self.buildprop_lines = []
+            part = str(obj.get("partition", "system"))
+            self.set_value("BUILD.PROP", f"READING {part}")
+            self.console.log(f"BUILD.PROP [{part}] READ START")
+            return
+
+        if typ == "emmc.buildprop.chunk":
+            data = str(obj.get("data", ""))
+            if data:
+                self.buildprop_lines.append(data)
             return
         if typ == "emmc.buildprop.result":
             self.set_value(
@@ -96,8 +106,17 @@ class IdentifyTab(QWidget):
             )
             return
         if typ == "emmc.buildprop.end":
-            if obj.get("ok"):
+            ok = bool(obj.get("ok"))
+            if ok:
                 self.set_value("BUILD.PROP", "OK")
+                self.console.log("BUILD.PROP : OK")
+                if self.buildprop_lines:
+                    self.console.log("BUILD.PROP CONTENT:")
+                    for line in "".join(self.buildprop_lines).splitlines():
+                        self.console.log(line)
+            else:
+                self.set_value("BUILD.PROP", "FAILED")
+                self.console.log("BUILD.PROP : FAILED - " + str(obj.get("msg", "unknown error")))
             return
         if typ != "emmc.identify.result":
             return
@@ -146,14 +165,13 @@ class IdentifyTab(QWidget):
         status = f"OK (OCR 0x{ocr:08X}, RCA {int(obj.get('rca', 0))})"
         self.set_value("Status", status)
         self.console.log("eMMC IDENTIFY")
-        self.console.log(f"Manufacturer : {fields['manufacturer']}")
-        self.console.log(f"Model        : {fields['pnm']}")
-        self.console.log(f"CID          : {cid}")
-        self.console.log(f"CSD          : {csd}")
         self.console.log(f"OCR          : 0x{ocr:08X}")
         self.console.log(f"RCA          : {int(obj.get('rca', 0))}")
-        self.console.log(f"Capacity     : {self.table.item(12, 1).text() if self.table.item(12, 1) else '-'}")
-        self.console.log(f"EXT_CSD Rev  : {self.table.item(11, 1).text() if self.table.item(11, 1) else '-'}")
+        for row in range(self.table.rowCount()):
+            key = self.table.item(row, 0)
+            value = self.table.item(row, 1)
+            if key:
+                self.console.log(f"{key.text():16} : {value.text() if value else '-'}")
         self.console.log("IDENTIFY OK")
         self.finish()
 
