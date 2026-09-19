@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QPushButton, QHBoxLayout, QSizePolicy
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QPushButton, QHBoxLayout, QSizePolicy, QHeaderView, QGroupBox
 from PyQt6.QtCore import QTimer
 
 
@@ -15,28 +15,61 @@ class IdentifyTab(QWidget):
 
     def setup(self):
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("eMMC IDENTIFY"))
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        title = QLabel("eMMC IDENTIFY")
+        title.setObjectName("sectionTitle")
+        layout.addWidget(title)
+
+        action_group = QGroupBox("DEVICE OPERATIONS")
+        action_layout = QHBoxLayout(action_group)
+        action_layout.setContentsMargins(8, 8, 8, 8)
+        action_layout.setSpacing(6)
+
+        self.button = QPushButton("IDENTIFY DEVICE")
+        self.health_check = QPushButton("eMMC HEALTH CHECK")
+        self.cancel = QPushButton("CANCEL")
+
+        for button in (self.button, self.health_check, self.cancel):
+            button.setObjectName("serviceButton")
+            button.setMinimumHeight(32)
+            button.setMinimumWidth(145)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        self.cancel.setEnabled(False)
+        action_layout.addWidget(self.button)
+        action_layout.addWidget(self.health_check)
+        action_layout.addWidget(self.cancel)
+        layout.addWidget(action_group)
+
+        info_group = QGroupBox("eMMC INFORMATION")
+        info_layout = QVBoxLayout(info_group)
+        info_layout.setContentsMargins(6, 6, 6, 6)
+
         self.table = QTableWidget(17, 2)
         self.table.setHorizontalHeaderLabels(["PARAMETER", "VALUE"])
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
         fields = [
             "Manufacturer", "MID", "CBX", "OID", "Model", "PRV",
             "Serial Number", "Manufacturing Date", "CID", "CSD",
-            "EXT_CSD", "EXT_CSD Revision", "Capacity", "Sector Size", "Bus Width", "Clock", "Status"
+            "EXT_CSD", "EXT_CSD Revision", "Capacity", "Sector Size",
+            "Bus Width", "Clock", "Status"
         ]
         for i, f in enumerate(fields):
             self.table.setItem(i, 0, QTableWidgetItem(f))
-        row = QHBoxLayout()
-        self.button = QPushButton("IDENTIFY DEVICE")
-        self.cancel = QPushButton("CANCEL")
-        for button in (self.button, self.cancel):
-            button.setMinimumWidth(150)
-            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.cancel.setEnabled(False)
-        row.addWidget(self.button, 1)
-        row.addWidget(self.cancel, 1)
-        layout.addWidget(self.table)
-        layout.addLayout(row)
+
+        info_layout.addWidget(self.table)
+        layout.addWidget(info_group, 1)
+
         self.button.clicked.connect(self.identify)
+        self.health_check.clicked.connect(self.health_check_clicked)
         self.cancel.clicked.connect(self.cancel_identify)
 
     def handle_serial_data(self, obj):
@@ -211,11 +244,21 @@ class IdentifyTab(QWidget):
         except Exception:
             return ""
 
+    def health_check_clicked(self):
+        self.health_check.setEnabled(False)
+        self.console.log("eMMC HEALTH CHECK")
+        try:
+            self.emmc.layout()
+        except Exception as e:
+            self.console.log(f"HEALTH CHECK ERROR: {e}")
+            self.health_check.setEnabled(True)
+
     def identify(self):
         if self.busy:
             return
         self.busy = True
         self.button.setEnabled(False)
+        self.health_check.setEnabled(False)
         self.cancel.setEnabled(True)
         try:
             self.emmc.identify()
@@ -241,4 +284,5 @@ class IdentifyTab(QWidget):
         self.timeout.stop()
         self.busy = False
         self.button.setEnabled(True)
+        self.health_check.setEnabled(True)
         self.cancel.setEnabled(False)
