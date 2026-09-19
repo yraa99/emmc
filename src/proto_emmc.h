@@ -15,5 +15,6 @@
 void proto_emmc_poll(void);
 bool proto_emmc_handle_text(const char *type, const char *json);
 void proto_emmc_stop_all(void);
+bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len);
 
 #endif // PROTO_EMMC_H
