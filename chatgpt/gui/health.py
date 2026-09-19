@@ -33,7 +33,6 @@ class HealthTab(QWidget):
         layout.addLayout(row)
 
     def readHealth(self):
-        self.console.log("READ eMMC HEALTH REQUEST")
         self.button.setEnabled(False)
         try:
             self.emmc.layout()
