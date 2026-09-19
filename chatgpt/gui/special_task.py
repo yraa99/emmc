@@ -15,6 +15,7 @@ class SpecialTaskTab(QWidget):
 
     TASKS = [
         # eMMC ToolBox special tasks documented by UFI
+        ("eMMC Health Check", True),
         ("Update eMMC5.x Firmware", False),
         ("Read eMMC Firmware / FFU", False),
         ("Secure Wipe - TRIM", False),
@@ -113,4 +114,34 @@ class SpecialTaskTab(QWidget):
 
     def execute_task(self):
         name = self.task_combo.currentText()
+        if name == "eMMC Health Check":
+            self.execute.setEnabled(False)
+            self.console.log("eMMC HEALTH CHECK: reading EXT_CSD health fields...")
+            try:
+                self.emmc.layout()
+            except Exception as e:
+                self.console.log(f"HEALTH ERROR: {e}")
+                self.execute.setEnabled(True)
+            return
         self.console.log(f"SPECIAL TASK: {name} is not implemented in RP2040 firmware")
+
+    def handle_serial_data(self, obj):
+        if obj.get("type") != "emmc.layout.result":
+            return
+        self.execute.setEnabled(True)
+        if not obj.get("ok", False):
+            self.console.log("HEALTH ERROR: " + str(obj.get("msg", "unknown error")))
+            return
+        try:
+            ext = bytes.fromhex(str(obj.get("ext_csd_hex", "")))
+        except ValueError:
+            ext = b""
+        if len(ext) != 512:
+            self.console.log("HEALTH ERROR: EXT_CSD payload tidak lengkap")
+            return
+        a, b, pre = ext[268], ext[269], ext[267]
+        life_a = "0x%02X" % a
+        life_b = "0x%02X" % b
+        pre_text = {1: "NORMAL", 2: "WARNING", 3: "URGENT"}.get(pre, "UNKNOWN")
+        self.console.log(f"eMMC HEALTH: LIFE_A={life_a} LIFE_B={life_b} PRE_EOL=0x{pre:02X} {pre_text}")
+        self.console.log(f"eMMC HEALTH: RPMB_SIZE_MULT=0x{ext[168]:02X}")
