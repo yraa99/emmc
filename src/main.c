@@ -480,7 +480,7 @@ static bool ext4_read_buildprop(uint32_t part_start, uint32_t part_sectors, bool
                 size_t take = block_size;
                 if (take > file_size - produced) take = (size_t)(file_size - produced);
                 if (produced + take > out_len) take = out_len - produced;
-                memcpy(out_data + produced, block, take);
+                memcpy(out_data + produced, g_ext4_block, take);
                 produced += take;
             }
         }
