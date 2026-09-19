@@ -34,6 +34,9 @@ class UserAreaTab(QWidget):
         self.dump_received = 0
         self.dump_start_lba = 0
         self.dump_total = 0
+        self.dump_segments = []
+        self.dump_segment_index = 0
+        self.dump_file_base = 0
         self.reading = False
         self._last_read_path = None
         self._buildprop_data = []
@@ -131,7 +134,8 @@ class UserAreaTab(QWidget):
             return
         item = {
             "name": name, "start": int(start), "sectors": int(sectors),
-            "status": status, "type": ptype, "logical": bool(logical)
+            "status": status, "type": ptype, "logical": bool(logical),
+            "extents": []
         }
         self.partitions.append(item)
         row = self.table.rowCount()
@@ -295,7 +299,17 @@ class UserAreaTab(QWidget):
             self.dump_received = done * 512
             self.dump_expected = self.dump_total * 512
             if state == "complete":
-                self.finish_read(True)
+                if self.dump_segment_index + 1 < len(self.dump_segments):
+                    self.dump_segment_index += 1
+                    self.dump_file_base += self.dump_segments[self.dump_segment_index - 1][1] * 512
+                    try:
+                        start_lba, sector_count = self.dump_segments[self.dump_segment_index]
+                        self.emmc.dump_start(start_lba, sector_count, 512, True, 3)
+                    except Exception as e:
+                        self.console.log(f"READ NEXT EXTENT ERROR: {e}")
+                        self.finish_read(False)
+                else:
+                    self.finish_read(True)
             elif state == "error":
                 self.finish_read(False)
 
@@ -327,9 +341,9 @@ class UserAreaTab(QWidget):
             return
         if len(payload) != count or not self.dump_file:
             return
-        self.dump_file.seek(offset)
+        self.dump_file.seek(self.dump_file_base + offset)
         self.dump_file.write(payload)
-        self.dump_received = max(self.dump_received, offset + count)
+        self.dump_received = max(self.dump_received, self.dump_file_base + offset + count)
 
     def selectedPartition(self):
         row = self.table.currentRow()
@@ -361,11 +375,17 @@ class UserAreaTab(QWidget):
         if not p:
             self.console.log("READ: select a partition first")
             return
-        if p["logical"]:
-            self.console.log(f"READ disabled for logical partition {p['name']}: mapped multi-extent dump protocol is not active")
-            return
         if p["sectors"] <= 0 or p["start"] < 0:
             return
+
+        if p.get("logical"):
+            if p.get("extents"):
+                base = p["start"] - p["extents"][0][0]
+                segments = [(base + start, sectors) for start, sectors in p["extents"]]
+            else:
+                segments = [(p["start"], p["sectors"])]
+        else:
+            segments = [(p["start"], p["sectors"])]
 
         default = os.path.join("", f"{p['name']}.bin")
         path, _ = QFileDialog.getSaveFileName(
@@ -385,14 +405,18 @@ class UserAreaTab(QWidget):
 
         self.dump_expected = p["sectors"] * 512
         self.dump_received = 0
-        self.dump_start_lba = p["start"]
+        self.dump_segments = segments
+        self.dump_segment_index = 0
+        self.dump_file_base = 0
+        self.dump_start_lba = segments[0][0]
         self.dump_total = p["sectors"]
         self.reading = True
         self.read.setEnabled(False)
         self.scan.setEnabled(False)
         self.stop.setEnabled(True)
         try:
-            self.emmc.dump_start(p["start"], p["sectors"], 512, True, 3)
+            start_lba, sector_count = self.dump_segments[0]
+            self.emmc.dump_start(start_lba, sector_count, 512, True, 3)
         except Exception as e:
             self.console.log(f"READ START ERROR: {e}")
             self.finish_read(False)
@@ -418,6 +442,9 @@ class UserAreaTab(QWidget):
                 pass
         self.dump_file = None
         self.reading = False
+        self.dump_segments = []
+        self.dump_segment_index = 0
+        self.dump_file_base = 0
         self.stop.setEnabled(False)
         self.scan.setEnabled(True)
         self.read.setEnabled(bool(self.partitions))
