@@ -73,6 +73,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(980, 620)
 
         self.console = Console()
+        self.program_backup = {"active": False, "key": None, "file": None, "path": None, "expected": 0, "received": 0}
         self.setupUI()
 
         self.serial.set_disconnect_callback(self.on_serial_disconnect)
@@ -411,25 +412,128 @@ class MainWindow(QMainWindow):
             row["edit"].setText(path)
 
     def program_read(self, key):
+        # BACKUP is a standalone eMMC PROGRAMMING action. It never opens
+        # another tab/service page.
+        if key not in self.program_rows:
+            return
+        if self.program_backup["active"]:
+            self.console.log("BACKUP: another backup is already running")
+            return
+
+        defaults = {"boot1": "boot1.bin", "boot2": "boot2.bin",
+                    "extcsd": "ext_csd.bin", "userarea": "userarea.bin"}
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Save {key.upper()} backup", defaults.get(key, f"{key}.bin"),
+            "Binary image (*.bin *.img);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            f = open(path, "w+b")
+        except OSError as e:
+            self.console.log(f"{key.upper()} BACKUP FILE ERROR: {e}")
+            return
+
+        self.program_backup.update({"active": True, "key": key, "file": f,
+                                    "path": path, "expected": 0, "received": 0})
+        self.program_rows[key]["edit"].setText(path)
+        self.start_operation(24 * 60 * 60 * 1000, f"BACKUP {key.upper()}")
+        try:
+            self.emmc.layout()
+        except Exception as e:
+            self.console.log(f"{key.upper()} BACKUP START ERROR: {e}")
+            self._finish_program_backup(False)
+
+    def _start_program_backup_from_layout(self, obj):
+        key = self.program_backup["key"]
+        f = self.program_backup["file"]
+        if not key or not f:
+            return
+        if not obj.get("ok", False):
+            self.console.log(f"{key.upper()} BACKUP: layout read failed: {obj.get('msg', 'unknown error')}")
+            self._finish_program_backup(False)
+            return
+
         if key == "extcsd":
-            self.show_service(self.boot)
-            self.boot.backupExtCSD()
+            try:
+                data = bytes.fromhex(str(obj.get("ext_csd_hex", "")))
+                if len(data) != 512:
+                    raise ValueError("EXT_CSD must be exactly 512 bytes")
+                f.write(data)
+                self.program_backup["expected"] = 512
+                self.program_backup["received"] = 512
+                self._finish_program_backup(True)
+            except (ValueError, OSError) as e:
+                self.console.log(f"EXT_CSD BACKUP ERROR: {e}")
+                self._finish_program_backup(False)
             return
-        if key == "boot1":
-            self.show_service(self.boot)
-            self.boot.bootRead(1)
+
+        if key in ("boot1", "boot2"):
+            sectors = int(obj.get("boot_bytes_each", 0)) // 512
+            partition = 1 if key == "boot1" else 2
+        else:
+            sectors = int(obj.get("sec_count", 0))
+            partition = 0
+
+        if sectors <= 0:
+            self.console.log(f"{key.upper()} BACKUP: invalid sector count")
+            self._finish_program_backup(False)
             return
-        if key == "boot2":
-            self.show_service(self.boot)
-            self.boot.bootRead(2)
+
+        expected = sectors * 512
+        try:
+            f.truncate(expected)
+            self.program_backup["expected"] = expected
+            self.program_backup["received"] = 0
+            self.emmc.dump_start(0, sectors, 256, True, 3, partition)
+        except (OSError, Exception) as e:
+            self.console.log(f"{key.upper()} BACKUP START ERROR: {e}")
+            self._finish_program_backup(False)
+
+    def _handle_program_backup_binary(self, frame):
+        if not self.program_backup["active"] or not self.program_backup["file"]:
             return
-        if key == "userarea":
-            self.console.clear()
-            self.userarea.show_service_controls()
-            self.console.log("USERAREA: select a partition in the table, then READ / BACKUP")
-            self.userarea.table.setFocus()
+        if len(frame) < 8 or frame[0] != 0xB0:
             return
-        self.console.log(f"{key.upper()}: BOOT partition protocol is not available in current RP2040 firmware")
+        ch = frame[1]
+        offset = int.from_bytes(frame[2:6], "little")
+        count = int.from_bytes(frame[6:8], "little")
+        if ch == 0x04:
+            payload = frame[8:8 + count]
+        elif ch == 0x05 and len(frame) >= 9:
+            payload = bytes([frame[8]]) * count
+        else:
+            return
+        if len(payload) != count:
+            return
+        try:
+            f = self.program_backup["file"]
+            f.seek(offset)
+            f.write(payload)
+            self.program_backup["received"] = max(self.program_backup["received"], offset + count)
+        except OSError as e:
+            self.console.log(f"BACKUP FILE WRITE ERROR: {e}")
+            self._finish_program_backup(False)
+
+    def _finish_program_backup(self, success):
+        pb = self.program_backup
+        path = pb["path"]
+        expected = pb["expected"]
+        received = pb["received"]
+        if pb["file"]:
+            try:
+                pb["file"].flush()
+                pb["file"].close()
+            except OSError:
+                pass
+        pb.update({"active": False, "key": None, "file": None, "path": None, "expected": 0, "received": 0})
+        if success and expected > 0 and received >= expected:
+            self.finish_operation(True, "BACKUP COMPLETE")
+            self.console.log(f"BACKUP COMPLETE: {path}")
+        else:
+            self.finish_operation(False, "BACKUP FAILED")
+            if path:
+                self.console.log(f"BACKUP FAILED: {path}")
 
     def program_write(self, key):
         self.console.log(f"{key.upper()} WRITE: RP2040 write protocol is not implemented; no data was sent")
@@ -836,6 +940,9 @@ class MainWindow(QMainWindow):
             else:
                 self.finish_operation(False, "GPT FAILED")
         elif typ == "emmc.layout.result":
+            if self.program_backup["active"]:
+                self._start_program_backup_from_layout(obj)
+                return
             if obj.get("ok"):
                 cfg = int(obj.get("partition_config", 0) or 0)
                 boot_en = (cfg >> 3) & 0x7
@@ -847,6 +954,13 @@ class MainWindow(QMainWindow):
             else:
                 self.finish_operation(False, "SETBOOT READ FAILED")
         elif typ == "emmc.dump.status":
+            if self.program_backup["active"]:
+                state = str(obj.get("state", ""))
+                if state == "complete":
+                    self._finish_program_backup(self.program_backup["received"] >= self.program_backup["expected"])
+                elif state in ("error", "stopped"):
+                    self._finish_program_backup(False)
+                return
             state = str(obj.get("state", ""))
             done = int(obj.get("done_blocks", 0))
             total = int(obj.get("total_blocks", 0))
@@ -856,6 +970,9 @@ class MainWindow(QMainWindow):
                 self.finish_operation(True, "READ COMPLETE")
             elif state == "error":
                 self.finish_operation(False, "READ FAILED")
+
+    def handle_binary_data(self, frame):
+        self._handle_program_backup_binary(frame)
 
     def closeEvent(self, event):
         try:
