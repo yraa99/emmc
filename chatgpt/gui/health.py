@@ -69,6 +69,19 @@ class HealthTab(QWidget):
             self.console.log("HEALTH ERROR: EXT_CSD payload tidak lengkap")
             return
         a, b, pre, rpmb = ext[268], ext[269], ext[267], ext[168]
-        values = [self.life_text(a), self.life_text(b), self.pre_eol_text(pre), f"0x{rpmb:02X} ({rpmb * 128} KiB nominal multiplier)", "NORMAL" if pre == 1 else "WARNING" if pre == 2 else "URGENT" if pre == 3 else "UNKNOWN"]
+        health_status = "NORMAL" if pre == 1 else "WARNING" if pre == 2 else "URGENT" if pre == 3 else "UNKNOWN"
+        values = [
+            self.life_text(a),
+            self.life_text(b),
+            self.pre_eol_text(pre),
+            f"0x{rpmb:02X} ({rpmb * 128} KiB nominal multiplier)",
+            health_status,
+        ]
         for r, value in enumerate(values):
             self.table.setItem(r, 1, QTableWidgetItem(value))
+        self.console.log("eMMC HEALTH")
+        self.console.log(f"DEVICE_LIFE_TIME_A : 0x{a:02X}")
+        self.console.log(f"DEVICE_LIFE_TIME_B : 0x{b:02X}")
+        self.console.log(f"PRE_EOL_INFO       : 0x{pre:02X} ({health_status})")
+        self.console.log(f"RPMB_SIZE_MULT     : 0x{rpmb:02X} ({rpmb * 128} KiB)")
+        self.console.log(f"HEALTH STATUS      : {health_status}")
