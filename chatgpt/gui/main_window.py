@@ -263,35 +263,21 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(work, 1)
 
-        # Service pages are kept alive but not visible as tab bars. This
-        # preserves the requested clean sketch while retaining Identify,
-        # Health, Boot/EXT_CSD, Special Task and ISP functionality.
-        self.service_stack = QStackedWidget()
+        # Service pages are kept alive for the secondary service windows.
+        # UserArea itself remains embedded in MAIN so its live partition table
+        # is always visible exactly where it is drawn in the reference.
         self.identify = IdentifyTab(self.emmc, self.console)
         self.boot = BootExtCSDTab(self.emmc, self.console)
         self.health = HealthTab(self.emmc, self.console)
         self.special = SpecialTaskTab(self.emmc, self.console)
         self.isp = ISPTestTab(self.emmc, self.console)
 
-        self.service_stack.addWidget(self.identify)
-        self.service_stack.addWidget(self.boot)
-        self.service_stack.addWidget(self.userarea)
-        self.service_stack.addWidget(self.health)
-        self.service_stack.addWidget(self.special)
-        self.service_stack.addWidget(self.isp)
-
-        # Keep the stack outside the visual main page by default. Navigation
-        # buttons replace the main work area only when explicitly requested.
-        self.main_stack = QStackedWidget()
         self.main_home = page
-        # The stack is not inserted into page; it is used by the category
-        # handlers through a lightweight service dialog container instead.
-        # Returning MAIN always restores the sketch view.
 
         self.btn_boot1.clicked.connect(lambda: self.show_service(self.boot))
         self.btn_boot2.clicked.connect(lambda: self.show_service(self.boot))
         self.btn_extcsd.clicked.connect(lambda: self.show_service(self.boot))
-        self.btn_userarea.clicked.connect(lambda: self.userarea.show_service_controls())
+        self.btn_userarea.clicked.connect(self.userarea.show_service_controls)
 
         return page
 
@@ -313,6 +299,9 @@ class MainWindow(QMainWindow):
 
     def show_service(self, widget):
         """Show a service page without changing the outer photo-like shell."""
+        if widget is self.userarea:
+            self.userarea.show_service_controls()
+            return
         if widget is self.boot:
             title = "BOOT / EXT_CSD"
         elif widget is self.identify:
