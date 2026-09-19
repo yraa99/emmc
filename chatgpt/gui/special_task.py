@@ -163,7 +163,10 @@ class SpecialTaskTab(QWidget):
         self.security_waiting_buildprop = False
         self.console.log("SECURITY BACKUP: scanning GPT for security/identity partitions...")
         try:
-            self.emmc.gpt()
+            # Backup Security is backup-only: GPT metadata is required to
+            # locate the security partitions, but build.prop must not be
+            # scanned/read as a side effect.
+            self.emmc.gpt(False)
         except Exception as e:
             self.security_waiting_gpt = False
             self.security_waiting_buildprop = False
