@@ -145,7 +145,7 @@ class UserAreaTab(QWidget):
             self.read.setEnabled(bool(self.partitions))
             if not self.buildprop_found:
                 self.buildprop_status.setText("build.prop not found / unsupported filesystem")
-                self.console.log("BUILD.PROP: no supported build.prop found during SCAN GPT")
+                self.console.log("BUILD.PROP: " + str(obj.get("msg", "no supported build.prop found during SCAN GPT")) )
             return
         if typ == "emmc.gpt.begin":
             self.partitions.clear()
