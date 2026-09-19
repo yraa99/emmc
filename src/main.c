@@ -701,7 +701,7 @@ static bool lp_parse_metadata_copy(const buildprop_candidate_t *super_candidate,
     uint32_t header_size = ext4_le32(&hdr[8]);
     uint32_t tables_size = ext4_le32(&hdr[44]);
     if (major != 10u || minor > 2u || header_size < 124u ||
-        header_size > 256u || tables_size == 0u ||
+        header_size > 256u || header_size > metadata_max || tables_size == 0u ||
         tables_size > metadata_max - header_size) return false;
 
     /*
@@ -829,23 +829,6 @@ static bool lp_parse_metadata_copy(const buildprop_candidate_t *super_candidate,
             buildprop_add_logical_candidate(name, extents, num_extents);
             *found_any = true;
 
-            char out[768];
-            size_t pos = 0u;
-            pos += (size_t)snprintf(out + pos, sizeof(out) - pos,
-                                    "{\"type\":\"emmc.lp.partition\","
-                                    "\"name\":\"%s\",\"start_lba\":%lu,"
-                                    "\"sectors\":%lu,\"extents\":[",
-                                    name, (unsigned long)(g_super_start_lba + extents[0].start_sector),
-                                    (unsigned long)total);
-            for (uint32_t j = 0u; j < num_extents && pos + 80u < sizeof(out); ++j) {
-                pos += (size_t)snprintf(out + pos, sizeof(out) - pos,
-                                        "%s{\"start\":%llu,\"sectors\":%llu}",
-                                        j ? "," : "",
-                                        (unsigned long long)extents[j].start_sector,
-                                        (unsigned long long)extents[j].sectors);
-            }
-            snprintf(out + pos, sizeof(out) - pos, "]}\n");
-            app_send_text(out);
         }
     }
 
