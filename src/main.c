@@ -225,9 +225,22 @@ static uint64_t gpt_le64(const uint8_t *p) {
 static uint32_t gpt_le32(const uint8_t *p) {
     return ((uint32_t)p[0]) | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
+
+static uint32_t gpt_crc32_update(uint32_t crc, const uint8_t *data, size_t len) {
+    for (size_t i = 0u; i < len; ++i) {
+        crc ^= data[i];
+        for (unsigned b = 0u; b < 8u; ++b)
+            crc = (crc >> 1u) ^ (0xEDB88320u & (uint32_t)-(int32_t)(crc & 1u));
+    }
+    return crc;
+}
+
+static uint32_t gpt_crc32(const uint8_t *data, size_t len) {
+    return ~gpt_crc32_update(0xFFFFFFFFu, data, len);
+}
 #define GPT_BUILDPROP_MAX_CANDIDATES 24u
 #define GPT_BUILDPROP_MAX_BLOCK 4096u
-#define GPT_BUILDPROP_MAX_BYTES 32768u
+#define GPT_BUILDPROP_MAX_BYTES 16384u
 #define GPT_BUILDPROP_MAX_EXTENTS 16u
 #define LP_MAX_METADATA_BYTES 131072u
 
@@ -1156,6 +1169,7 @@ static bool send_gpt_result(bool include_buildprop) {
     }
 
     uint32_t header_size = gpt_le32(&hdr[12]);
+    uint32_t stored_header_crc = gpt_le32(&hdr[16]);
     uint64_t first_usable = gpt_le64(&hdr[40]);
     uint64_t last_usable = gpt_le64(&hdr[48]);
     uint64_t entries_lba = gpt_le64(&hdr[72]);
@@ -1166,10 +1180,43 @@ static bool send_gpt_result(bool include_buildprop) {
     gpt_has_super_partition = false;
     g_super_start_lba = 0u;
     g_super_sectors = 0u;
-    if (header_size < 92u || header_size > 512u || entry_size < 128u || entry_size > 512u || entry_count == 0u) {
+    if (header_size < 92u || header_size > 512u || entry_size < 128u || entry_size > 512u || entry_count == 0u ||
+        entries_lba > UINT32_MAX || (uint64_t)entry_count * entry_size > (uint64_t)UINT32_MAX) {
         return app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"Invalid GPT header\"}\n");
     }
-    if (entry_count > 128u) entry_count = 128u;
+    {
+        uint8_t header_copy[512];
+        memcpy(header_copy, hdr, header_size);
+        memset(&header_copy[16], 0, 4u);
+        if (gpt_crc32(header_copy, header_size) != stored_header_crc) {
+            return app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"GPT header CRC mismatch\"}\n");
+        }
+    }
+    if (entry_count > 128u) {
+        return app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"GPT entry count exceeds safe limit\"}\n");
+    }
+    {
+        uint32_t expected_entries_crc = gpt_le32(&hdr[88]);
+        uint32_t crc = 0xFFFFFFFFu;
+        uint64_t total_bytes = (uint64_t)entry_count * entry_size;
+        uint64_t done_bytes = 0u;
+        uint64_t scan_lba = entries_lba;
+        uint8_t crc_sector[512];
+        while (done_bytes < total_bytes) {
+            if (scan_lba > UINT32_MAX ||
+                !emmc_read_block((uint32_t)scan_lba, g_hc_addressing, crc_sector, msg, sizeof(msg))) {
+                return app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"GPT entry CRC read failed\"}\n");
+            }
+            size_t take = (size_t)((total_bytes - done_bytes) > 512u ? 512u : (total_bytes - done_bytes));
+            crc = gpt_crc32_update(crc, crc_sector, take);
+            done_bytes += take;
+            scan_lba++;
+        }
+        crc = ~crc;
+        if (crc != expected_entries_crc) {
+            return app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"GPT entry CRC mismatch\"}\n");
+        }
+    }
 
     char out[320];
     snprintf(out, sizeof(out),
