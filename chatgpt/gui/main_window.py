@@ -21,6 +21,8 @@ from gui.userarea import UserAreaTab
 from gui.health import HealthTab
 from gui.special_task import SpecialTaskTab
 from gui.isp_test import ISPTestTab
+from gui.adb_fastboot import ADBFastbootTab
+from gui.factory_image import FactoryImageTab
 
 
 class MainWindow(QMainWindow):
@@ -30,6 +32,7 @@ class MainWindow(QMainWindow):
         self.emmc = emmc
         self.serial = serial
         self.last_pico_device = None
+        self.identify_sequence = False
 
         self.operation_timer = QTimer(self)
         self.operation_timer.setSingleShot(True)
@@ -125,6 +128,33 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(connection_group)
 
         # ======================================================
+        # MAIN QUICK ACTIONS
+        # ======================================================
+        action_group = QGroupBox("MAIN")
+        action_layout = QHBoxLayout(action_group)
+        action_layout.setContentsMargins(10, 8, 10, 8)
+        action_layout.setSpacing(8)
+
+        self.btn_main_identify = QPushButton("IDENTIFY")
+        self.btn_main_health = QPushButton("eMMC HEALTH")
+        self.btn_main_gpt = QPushButton("READ GPT")
+        self.btn_main_identify.setMinimumWidth(150)
+        self.btn_main_health.setMinimumWidth(150)
+        self.btn_main_gpt.setMinimumWidth(130)
+
+        for button in (self.btn_main_identify, self.btn_main_health, self.btn_main_gpt):
+            button.setObjectName("mainAction")
+            button.setMinimumHeight(34)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            action_layout.addWidget(button)
+
+        action_layout.addStretch()
+        self.btn_main_identify.clicked.connect(self.main_identify)
+        self.btn_main_health.clicked.connect(self.main_health)
+        self.btn_main_gpt.clicked.connect(self.main_gpt)
+        main_layout.addWidget(action_group)
+
+        # ======================================================
         # MAIN WORK AREA
         #
         # LEFT  = CONSOLE / LOG 30%
@@ -199,6 +229,10 @@ class MainWindow(QMainWindow):
             self.console,
         )
 
+
+        self.adb_fastboot = ADBFastbootTab(self.console)
+        self.factory_image = FactoryImageTab(self.console)
+
         # ------------------------------------------------------
         # ADD TABS
         # ------------------------------------------------------
@@ -231,6 +265,17 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(
             self.isp,
             "ISP TEST",
+        )
+
+
+        self.tabs.addTab(
+            self.adb_fastboot,
+            "ADB / FASTBOOT",
+        )
+
+        self.tabs.addTab(
+            self.factory_image,
+            "FACTORY IMAGE",
         )
 
         service_layout.addWidget(self.tabs)
@@ -396,6 +441,18 @@ class MainWindow(QMainWindow):
                 min-width: 100px;
                 min-height: 30px;
                 max-height: 32px;
+            }
+
+            QPushButton#mainAction {
+                min-height: 34px;
+                max-height: 36px;
+                font-weight: bold;
+                padding: 6px 16px;
+            }
+
+            QPushButton#mainAction:hover {
+                background-color: #2e3941;
+                border-color: #68757e;
             }
 
             QPushButton:hover {
@@ -880,6 +937,67 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(
             self.identify
         )
+
+    # ==========================================================
+    # MAIN QUICK ACTIONS
+    # ==========================================================
+
+    def main_identify(self):
+        if not self.serial.is_connected():
+            self.console.log("IDENTIFY: RP2040 is not connected")
+            return
+        self.identify_sequence = True
+        self.tabs.setCurrentWidget(self.identify)
+        self.console.log("Reading eMMC identify ...")
+        try:
+            self.emmc.identify()
+            self.operation_label.setText("Reading eMMC identification...")
+            self.footer_status.setText("Identify")
+        except Exception as e:
+            self.identify_sequence = False
+            self.console.log(f"IDENTIFY ERROR: {e}")
+
+    def main_main_read_gpt(self):
+        self.main_gpt()
+
+    def main_gpt(self):
+        if not self.serial.is_connected():
+            self.console.log("READ GPT: RP2040 is not connected")
+            return
+        self.tabs.setCurrentWidget(self.userarea)
+        try:
+            self.userarea.scanGPT()
+        except Exception as e:
+            self.console.log(f"READ GPT ERROR: {e}")
+
+    def main_health(self):
+        if not self.serial.is_connected():
+            self.console.log("eMMC HEALTH: RP2040 is not connected")
+            return
+        self.tabs.setCurrentWidget(self.health)
+        try:
+            self.health.readHealth()
+        except Exception as e:
+            self.console.log(f"HEALTH ERROR: {e}")
+
+    def handle_serial_data(self, obj):
+        if not isinstance(obj, dict):
+            return
+        if obj.get("type") == "emmc.identify.result":
+            self.operation_label.setText("Identify complete")
+            self.footer_status.setText("Ready")
+            if self.identify_sequence:
+                self.identify_sequence = False
+                if obj.get("ok", False):
+                    self.console.log("IDENTIFY OK - reading GPT ...")
+                    self.main_gpt()
+                else:
+                    self.console.log("IDENTIFY failed - GPT not started")
+        elif obj.get("type") == "emmc.gpt.result":
+            self.operation_label.setText("GPT scan complete" if obj.get("ok") else "GPT scan failed")
+            self.footer_status.setText("Ready")
+        elif obj.get("type") == "emmc.layout.result":
+            self.operation_label.setText("eMMC health / EXT_CSD complete" if obj.get("ok") else "Health read failed")
 
     # ==========================================================
     # WINDOW CLOSE
