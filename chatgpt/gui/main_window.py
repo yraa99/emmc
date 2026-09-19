@@ -285,7 +285,17 @@ class MainWindow(QMainWindow):
         self.program_rows["userarea"]["write"].setEnabled(False)
         self.program_rows["userarea"]["write"].setToolTip("eMMC write-stream protocol is not yet implemented")
 
+        user_mode = QHBoxLayout()
+        user_mode.addWidget(QLabel("USERAREA mode"))
+        self.userarea_mode = QComboBox()
+        self.userarea_mode.addItems(["AUTO", "RAW", "SPARSE"])
+        user_mode.addWidget(self.userarea_mode)
+        self.userarea_verify = QCheckBox("Verify after read")
+        self.userarea_verify.setChecked(True)
+        user_mode.addWidget(self.userarea_verify)
+        user_mode.addStretch(1)
         right_layout.addWidget(program_box)
+        right_layout.addLayout(user_mode)
 
         # SETBOOT sits immediately above the User Area partition table.
         setboot = QGroupBox("SET BOOT")
@@ -333,6 +343,7 @@ class MainWindow(QMainWindow):
         self.btn_setboot_read.clicked.connect(self.read_setboot)
         self.btn_setboot_write.clicked.connect(self.write_setboot)
         self.setboot_chipset.currentIndexChanged.connect(self.apply_setboot_profile)
+        self.apply_setboot_profile(self.setboot_chipset.currentIndex())
 
         right_layout.addWidget(setboot)
 
@@ -756,7 +767,6 @@ class MainWindow(QMainWindow):
             return
         self.identify_sequence = True
         try:
-            self.show_service(self.identify)
             self.start_operation(15000, "IDENTIFY")
             self.emmc.identify()
         except Exception as e:
@@ -799,9 +809,15 @@ class MainWindow(QMainWindow):
                 self.finish_operation(False, "GPT FAILED")
         elif typ == "emmc.layout.result":
             if obj.get("ok"):
-                self.finish_operation(True, "HEALTH OK")
+                cfg = int(obj.get("partition_config", 0) or 0)
+                boot_en = (cfg >> 3) & 0x7
+                access = cfg & 0x7
+                source = {0: "Disabled", 1: "BOOT1", 2: "BOOT2", 7: "User Area"}.get(boot_en, "Disabled")
+                self.setboot_source.setCurrentText(source)
+                self.console.log(f"SETBOOT READ : SoC={self.setboot_chipset.currentText()}  PARTITION_CONFIG=0x{cfg:02X}  Boot={source}  Access={access}")
+                self.finish_operation(True, "SETBOOT READ OK")
             else:
-                self.finish_operation(False, "HEALTH FAILED")
+                self.finish_operation(False, "SETBOOT READ FAILED")
         elif typ == "emmc.dump.status":
             state = str(obj.get("state", ""))
             done = int(obj.get("done_blocks", 0))
