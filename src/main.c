@@ -442,7 +442,7 @@ static void process_command(char *cmd) {
         return;
     }
 
-    if (strcmp(cmd, "IDENTIFY") == 0) {
+    if (strcmp(cmd, "IDENTIFY") == 0 || strcmp(cmd, "READ_CID") == 0) {
         signal_monitor_stop();
         proto_emmc_handle_text("emmc.identify", "{\"type\":\"emmc.identify\"}");
         return;
