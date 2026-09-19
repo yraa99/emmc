@@ -14,6 +14,7 @@ class SpecialTaskTab(QWidget):
     """
 
     TASKS = [
+        # eMMC ToolBox special tasks documented by UFI
         ("Update eMMC5.x Firmware", False),
         ("Read eMMC Firmware / FFU", False),
         ("Secure Wipe - TRIM", False),
@@ -23,6 +24,20 @@ class SpecialTaskTab(QWidget):
         ("Resize User Partition", False),
         ("Repair CID", False),
         ("NAND Test", False),
+        # UFI Android/flash service special-task catalogue
+        ("Full Erase", False),
+        ("Full Erase (Except Bootloader)", False),
+        ("Clean Viruses", False),
+        ("Factory Reset", False),
+        ("Patch Boot Image (Insecure Boot)", False),
+        ("Clear User Locks (Code / PIN / Gesture / Fingerprint)", False),
+        ("Clear FRP Lock", False),
+        ("Remove Google Account", False),
+        ("Reset Xiaomi (Mi Account) Lock", False),
+        ("Reset Meizu (Flyme Account) Lock", False),
+        ("Wipe Data & App", False),
+        ("Wipe Data Only", False),
+        ("Wipe App Data", False),
     ]
 
     def __init__(self, emmc, console):
