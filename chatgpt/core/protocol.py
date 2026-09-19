@@ -17,9 +17,12 @@ class Protocol:
     def version(self):
         self.send_command("VERSION")
 
-    def gpt(self):
+    def gpt(self, include_buildprop=True):
         import json
-        self.send_command(json.dumps({"type": "emmc.gpt"}, separators=(",", ":")))
+        self.send_command(json.dumps(
+            {"type": "emmc.gpt", "include_buildprop": bool(include_buildprop)},
+            separators=(",", ":")
+        ))
 
     def isp_cmd_test(self, cycles=6):
         self.send_command(f"CMD_TEST {cycles}")
