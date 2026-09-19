@@ -661,6 +661,10 @@ class MainWindow(QMainWindow):
                 self.finish_operation(False, "HEALTH FAILED")
         elif typ == "emmc.dump.status":
             state = str(obj.get("state", ""))
+            done = int(obj.get("done_blocks", 0))
+            total = int(obj.get("total_blocks", 0))
+            if total > 0:
+                self.progress.setValue(max(0, min(100, int(done * 100 / total))))
             if state == "complete":
                 self.finish_operation(True, "READ COMPLETE")
             elif state == "error":
