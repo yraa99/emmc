@@ -208,6 +208,7 @@ class MainWindow(QMainWindow):
         self.btn_cancel.clicked.connect(self.cancel_operation)
 
         self._wire_beta_functions_to_gui_tabs()
+        self.apply_theme()
         self.refresh_ports(auto_connect=True)
         self.console.log("Pico eMMC Tool initialized successfully.")
 
