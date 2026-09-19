@@ -512,30 +512,49 @@ static bool ext4_scan_dir_block_for_name(const uint8_t *block, uint32_t block_si
 }
 
 static bool ext4_scan_htree_node(const buildprop_candidate_t *candidate, bool hc,
-                                 uint32_t block_size, uint32_t fs_block,
-                                 uint8_t depth, const char *wanted,
-                                 uint32_t *out_inode) {
-    if (!candidate || !wanted || !out_inode || depth > 3u) return false;
-    if (!ext4_read_block(candidate, hc, fs_block, block_size, g_ext4_block)) return false;
+                                 const uint8_t *dir_inode, uint32_t block_size,
+                                 uint32_t dir_logical_block, uint8_t depth,
+                                 const char *wanted, uint32_t *out_inode) {
+    if (!candidate || !dir_inode || !wanted || !out_inode || depth > 3u) return false;
+
+    uint32_t fs_block = 0u;
+    if (!ext4_inode_data_block(candidate, hc, dir_inode, block_size,
+                               dir_logical_block, &fs_block)) {
+        return false;
+    }
+    if (!ext4_read_block(candidate, hc, fs_block, block_size, g_ext4_block)) {
+        return false;
+    }
 
     if (depth == 0u) {
         return ext4_scan_dir_block_for_name(g_ext4_block, block_size, wanted, out_inode);
     }
 
-    uint16_t count = ext4_le16(&g_ext4_block[10]);
-    if (count < 2u) return false;
+    /*
+     * dx_node:
+     *   limit @ 0x08, count @ 0x0A, entries @ 0x12.
+     * dx_entry.block is a DIRECTORY-LOGICAL block number, not a filesystem
+     * block number. Resolve it through the directory inode on every level.
+     */
+    uint16_t limit = ext4_le16(&g_ext4_block[0x08u]);
+    uint16_t count = ext4_le16(&g_ext4_block[0x0Au]);
+    if (count < 2u || limit < count || limit > 1024u) return false;
+
     uint16_t entries = (uint16_t)(count - 1u);
     uint16_t max_entries = (uint16_t)((block_size - 0x12u) / 8u);
     if (entries > max_entries) entries = max_entries;
-    uint32_t children[340];
     if (entries > 340u) entries = 340u;
+
+    uint32_t children[340];
     for (uint16_t i = 0u; i < entries; ++i) {
         children[i] = ext4_le32(&g_ext4_block[0x12u + i * 8u + 4u]);
     }
+
     for (uint16_t i = 0u; i < entries; ++i) {
         if (children[i] &&
-            ext4_scan_htree_node(candidate, hc, block_size, children[i],
-                                 (uint8_t)(depth - 1u), wanted, out_inode)) {
+            ext4_scan_htree_node(candidate, hc, dir_inode, block_size,
+                                 children[i], (uint8_t)(depth - 1u),
+                                 wanted, out_inode)) {
             return true;
         }
     }
@@ -556,21 +575,33 @@ static bool ext4_scan_directory_for_name(const buildprop_candidate_t *candidate,
         uint32_t root_phys = 0u;
         if (ext4_inode_data_block(candidate, hc, dir_inode, block_size, 0u, &root_phys) &&
             ext4_read_block(candidate, hc, root_phys, block_size, g_ext4_block)) {
+            /*
+             * dx_root:
+             *   indirect_levels @ 0x1E
+             *   limit @ 0x20
+             *   count @ 0x22
+             *   entries @ 0x28
+             */
             uint8_t indirect_levels = g_ext4_block[0x1Eu];
+            uint16_t limit = ext4_le16(&g_ext4_block[0x20u]);
             uint16_t count = ext4_le16(&g_ext4_block[0x22u]);
-            uint16_t max_entries = (uint16_t)((block_size - 0x28u) / 8u);
-            if (indirect_levels <= 3u && count >= 2u) {
+
+            if (indirect_levels <= 3u && count >= 2u && limit >= count && limit <= 1024u) {
                 uint16_t entries = (uint16_t)(count - 1u);
+                uint16_t max_entries = (uint16_t)((block_size - 0x28u) / 8u);
                 if (entries > max_entries) entries = max_entries;
                 if (entries > 340u) entries = 340u;
+
                 uint32_t children[340];
                 for (uint16_t i = 0u; i < entries; ++i) {
                     children[i] = ext4_le32(&g_ext4_block[0x28u + i * 8u + 4u]);
                 }
+
                 for (uint16_t i = 0u; i < entries; ++i) {
                     if (children[i] &&
-                        ext4_scan_htree_node(candidate, hc, block_size, children[i],
-                                             indirect_levels, wanted, out_inode)) {
+                        ext4_scan_htree_node(candidate, hc, dir_inode, block_size,
+                                             children[i], indirect_levels,
+                                             wanted, out_inode)) {
                         return true;
                     }
                 }
@@ -880,30 +911,6 @@ static bool scan_dynamic_super_candidates(const buildprop_candidate_t *super_can
 
     app_send_text("{\"type\":\"emmc.lp.result\",\"ok\":false,"
                   "\"msg\":\"Android LP metadata not found or unsupported\"}\n");
-    return false;
-}
-
-static bool scan_dynamic_super_candidates(const buildprop_candidate_t *super_candidate, bool hc) {
-    uint32_t before = g_buildprop_candidate_count;
-    bool parsed = false;
-    if (!super_candidate) return false;
-
-    app_send_text("{\"type\":\"emmc.lp.begin\",\"ok\":true}\n");
-
-    /* Slot 0 and slot 1 are both inspected. liblp uses slot-specific metadata
-       and applies _a/_b to partitions carrying LP_PARTITION_ATTR_SLOT_SUFFIXED. */
-    parsed |= lp_parse_slot(super_candidate, hc, 0u);
-    parsed |= lp_parse_slot(super_candidate, hc, 1u);
-
-    if (parsed && g_buildprop_candidate_count > before) {
-        char out[192];
-        snprintf(out, sizeof(out),
-                 "{\"type\":\"emmc.lp.result\",\"ok\":true,\"logical_partitions\":%lu}\n",
-                 (unsigned long)(g_buildprop_candidate_count - before));
-        app_send_text(out);
-        return true;
-    }
-    app_send_text("{\"type\":\"emmc.lp.result\",\"ok\":false,\"msg\":\"Android LP metadata not found or unsupported\"}\n");
     return false;
 }
 
