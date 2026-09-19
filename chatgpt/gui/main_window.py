@@ -492,10 +492,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         try:
-            self.clock_timer.stop()
-        except Exception:
-            pass
-        try:
             if self.serial and self.serial.is_connected():
                 self.serial.disconnect()
         except Exception:
