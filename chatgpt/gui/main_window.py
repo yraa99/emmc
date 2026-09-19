@@ -883,18 +883,15 @@ class MainWindow(QMainWindow):
             self.operation_label.setText(f"IDENTIFY {obj.get('area', '')} {percent}%")
         elif typ == "emmc.identify.result":
             if obj.get("ok"):
-                self.finish_operation(True, "IDENTIFY OK")
+                boot1 = bool(obj.get("boot1_read"))
+                boot2 = bool(obj.get("boot2_read"))
+                suffix = "" if (boot1 and boot2) else " (BOOT probe warning)"
+                self.finish_operation(True, "IDENTIFY OK" + suffix)
                 if self.identify_sequence:
                     self.identify_sequence = False
                     self.main_gpt()
             else:
                 self.finish_operation(False, "IDENTIFY FAILED")
-                self.console.log(
-                    "IDENTIFY ERROR: "
-                    + str(obj.get("stage", "unknown stage"))
-                    + " - "
-                    + str(obj.get("msg", "unknown error"))
-                )
         elif typ == "emmc.gpt.end":
             if obj.get("ok", True):
                 self.finish_operation(True, "GPT OK")
