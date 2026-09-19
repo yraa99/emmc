@@ -7,9 +7,9 @@ from PyQt6.QtCore import QTimer, QDateTime, Qt
 
 # VISUAL SOURCE OF TRUTH: yraa99/gui
 from gui.tabs.main_tab import MainTab
-from gui.tabs.userarea_tab import UserAreaTab
-from gui.tabs.adb_fastboot_tab import ADBFastbootTab
-from gui.tabs.factory_image_tab import FactoryImageTab
+from gui.userarea import UserAreaTab
+from gui.adb_fastboot import ADBFastbootTab
+from gui.factory_image import FactoryImageTab
 
 # FUNCTIONAL SOURCE OF TRUTH: pico-emmc-beta
 from gui.identify import IdentifyTab
@@ -178,9 +178,10 @@ class MainWindow(QMainWindow):
             isp_cmd1=self.isp.run_cmd1,
         )
 
-        self.tab_userarea = UserAreaTab()
-        self.tab_adb = ADBFastbootTab()
-        self.tab_factory = FactoryImageTab()
+        # The four visible tabs use the complete beta service widgets.
+        self.tab_userarea = BetaUserAreaTab(self.emmc, self.console)
+        self.tab_adb = BetaADBFastbootTab(self.console)
+        self.tab_factory = BetaFactoryImageTab(self.console)
 
         self.tabs.addTab(self.tab_main, "MAIN")
         self.tabs.addTab(self.tab_userarea, "USER AREA")
@@ -197,40 +198,10 @@ class MainWindow(QMainWindow):
         self.console.log("Pico eMMC Tool initialized successfully.")
 
     def _wire_beta_functions_to_gui_tabs(self):
-        """Keep the visual shell while routing every exposed control to beta services."""
-        # The active MAIN dashboard uses explicit callbacks above.
-        # Keep unsupported beta operations disabled, exactly as beta does.
-        self._userarea_backend_handler = self.userarea.handle_serial_data
-
-        # ADB / Fastboot: use the full beta widget implementation underneath
-        # the compact visual shell where possible.
-        for label, method_name in {
-            "ADB Devices": "scan_adb",
-            "Reboot to Bootloader": "bootloader",
-            "Fastboot Devices": "scan_fastboot",
-        }.items():
-            button = next(
-                (b for b in self.tab_adb.findChildren(QPushButton)
-                 if b.text().strip() == label), None
-            )
-            method = getattr(self.adb_backend, method_name, None)
-            if button is not None and method is not None:
-                try:
-                    button.clicked.disconnect()
-                except (TypeError, RuntimeError):
-                    pass
-                button.clicked.connect(method)
-
-        factory_button = next(
-            (b for b in self.tab_factory.findChildren(QPushButton)
-             if b.text().strip() == "Flash Factory Image"), None
-        )
-        if factory_button is not None:
-            try:
-                factory_button.clicked.disconnect()
-            except (TypeError, RuntimeError):
-                pass
-            factory_button.clicked.connect(self.factory_backend.flash_disabled)
+        """Bind visible controls to the same service objects used by beta."""
+        # MAIN callbacks are connected explicitly during UI construction.
+        # USER AREA / ADB / FACTORY are already the full beta widgets.
+        return
 
     def _beta_write(self):
         self.console.log("WRITE disabled: pico-emmc-beta has no active safe eMMC write protocol.")
@@ -372,37 +343,6 @@ class MainWindow(QMainWindow):
                 self.console.log(
                     "IDENTIFY ERROR: " + str(packet.get("msg", "unknown error"))
                 )
-
-        # Mirror useful beta USER AREA data into the active GUI tab without
-        # replacing its widgets.
-        if kind in (
-            "emmc.gpt.begin", "emmc.gpt.partition", "emmc.gpt.end",
-            "emmc.buildprop.begin", "emmc.buildprop.result",
-            "emmc.buildprop.end"
-        ):
-            text = self._format_userarea_packet(packet)
-            if text:
-                self.tab_userarea.text.append(text)
-
-    def _format_userarea_packet(self, packet):
-        kind = packet.get("type", "")
-        if kind == "emmc.gpt.begin":
-            return "Reading GPT..."
-        if kind == "emmc.gpt.partition":
-            return (
-                f"GPT: {packet.get('name', '')} | "
-                f"LBA={packet.get('start_lba', 0)} | "
-                f"sectors={packet.get('sectors', 0)}"
-            )
-        if kind == "emmc.gpt.end":
-            return "GPT scan complete."
-        if kind == "emmc.buildprop.begin":
-            return f"build.prop: reading {packet.get('partition', 'Android')}..."
-        if kind == "emmc.buildprop.result":
-            return "build.prop: found."
-        if kind == "emmc.buildprop.end":
-            return "build.prop: read complete. Details are available in LOG."
-        return ""
 
     def closeEvent(self, event):
         try:
