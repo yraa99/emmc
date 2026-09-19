@@ -259,7 +259,7 @@ class MainWindow(QMainWindow):
         grid.setContentsMargins(5, 5, 5, 5)
         grid.setHorizontalSpacing(4)
         grid.setVerticalSpacing(4)
-        headers = ["TASK", "DUMP / IMAGE FILE", "SELECT", "READ", "WRITE"]
+        headers = ["TASK", "DUMP / IMAGE FILE", "SELECT", "BACKUP", "WRITE"]
         for col, title in enumerate(headers):
             lab = QLabel(title)
             lab.setObjectName("tableHeader")
@@ -279,7 +279,7 @@ class MainWindow(QMainWindow):
             edit.setPlaceholderText("Select dump / image")
             select = QPushButton("...")
             select.setFixedWidth(34)
-            read = QPushButton("READ")
+            read = QPushButton("BACKUP")
             write = QPushButton("WRITE")
             self.program_rows[key] = {
                 "edit": edit, "select": select, "read": read, "write": write,
