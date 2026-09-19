@@ -38,6 +38,7 @@ from gui.special_task import SpecialTaskTab
 from gui.isp_test import ISPTestTab
 from gui.adb_fastboot import ADBFastbootTab
 from gui.factory_image import FactoryImageTab
+from gui.setboot import SetBootTab
 
 
 class MainWindow(QMainWindow):
@@ -199,6 +200,10 @@ class MainWindow(QMainWindow):
         special_layout.addWidget(self.special_combo, 1)
         footer.addWidget(special_widget, 1)
 
+        self.setboot_button = QPushButton("SetBoot")
+        self.setboot_button.setMinimumWidth(90)
+        footer.addWidget(self.setboot_button)
+
         self.theme_button = QPushButton("Dark / Light")
         self.theme_button.setMinimumWidth(105)
         footer.addWidget(self.theme_button)
@@ -207,6 +212,7 @@ class MainWindow(QMainWindow):
 
         self.btn_cancel.clicked.connect(self.cancel_operation)
         self.special_combo.currentIndexChanged.connect(self.on_special_selected)
+        self.setboot_button.clicked.connect(self.open_setboot)
         self.theme_button.clicked.connect(self.toggle_theme)
 
         self.apply_style()
@@ -320,56 +326,8 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(program_box)
         right_layout.addLayout(user_mode)
 
-        # SETBOOT sits immediately above the User Area partition table.
-        setboot = QGroupBox("SET BOOT")
-        sb = QGridLayout(setboot)
-        sb.setContentsMargins(5, 5, 5, 5)
-        sb.setHorizontalSpacing(4)
-        sb.setVerticalSpacing(4)
-
-        sb.addWidget(QLabel("Chipset / SoC"), 0, 0)
-        self.setboot_chipset = QComboBox()
-        self.setboot_chipset.addItems([
-            "Generic eMMC",
-            "Qualcomm",
-            "MediaTek",
-            "Unisoc / Spreadtrum",
-            "Samsung / Exynos",
-            "Huawei / HiSilicon",
-        ])
-        sb.addWidget(self.setboot_chipset, 0, 1)
-
-        sb.addWidget(QLabel("Boot source"), 0, 2)
-        self.setboot_source = QComboBox()
-        self.setboot_source.addItems(["Disabled", "BOOT1", "BOOT2", "User Area"])
-        sb.addWidget(self.setboot_source, 0, 3)
-
-        sb.addWidget(QLabel("Boot bus"), 1, 0)
-        self.setboot_bus = QComboBox()
-        self.setboot_bus.addItems(["x1", "x4", "x8"])
-        self.setboot_bus.setCurrentText("x8")
-        sb.addWidget(self.setboot_bus, 1, 1)
-
-        sb.addWidget(QLabel("Reset boot bus"), 1, 2)
-        self.setboot_reset = QComboBox()
-        self.setboot_reset.addItems(["x1", "retain"])
-        self.setboot_reset.setCurrentText("retain")
-        sb.addWidget(self.setboot_reset, 1, 3)
-
-        self.btn_setboot_read = QPushButton("READ SETBOOT")
-        self.btn_setboot_write = QPushButton("WRITE SETBOOT")
-        self.btn_setboot_write.setEnabled(False)
-        self.btn_setboot_write.setToolTip("Requires validated EXT_CSD CMD6 write support in RP2040 firmware")
-        sb.addWidget(self.btn_setboot_read, 2, 0, 1, 2)
-        sb.addWidget(self.btn_setboot_write, 2, 2, 1, 2)
-
-        self.btn_setboot_read.clicked.connect(self.read_setboot)
-        self.btn_setboot_write.clicked.connect(self.write_setboot)
-        self.setboot_chipset.currentIndexChanged.connect(self.apply_setboot_profile)
-        self.apply_setboot_profile(self.setboot_chipset.currentIndex())
-
-        right_layout.addWidget(setboot)
-
+        # SetBoot is a dedicated service page opened from the footer. It is
+        # intentionally not embedded in UserArea.
         # Live User Area partition table is embedded here, not opened as a tab.
         self.userarea = UserAreaTab(self.emmc, self.console)
         self.userarea.hide_main_chrome()
@@ -389,6 +347,7 @@ class MainWindow(QMainWindow):
         self.boot = BootExtCSDTab(self.emmc, self.console)
         self.health = HealthTab(self.emmc, self.console)
         self.special = SpecialTaskTab(self.emmc, self.console)
+        self.setboot = SetBootTab(self.emmc, self.console)
         self.isp = ISPTestTab(self.emmc, self.console)
         self.main_home = page
 
@@ -537,34 +496,13 @@ class MainWindow(QMainWindow):
     def program_write(self, key):
         self.console.log(f"{key.upper()} WRITE: RP2040 write protocol is not implemented; no data was sent")
 
-    def apply_setboot_profile(self, index):
-        # Profiles are workflow presets, not claims about every device.
-        profiles = {
-            0: ("Disabled", "x8", "retain"),
-            1: ("BOOT1", "x8", "retain"),
-            2: ("BOOT1", "x8", "retain"),
-            3: ("BOOT1", "x8", "retain"),
-            4: ("BOOT1", "x8", "retain"),
-            5: ("BOOT1", "x8", "retain"),
-        }
-        source, bus, reset = profiles.get(index, profiles[0])
-        self.setboot_source.setCurrentText(source)
-        self.setboot_bus.setCurrentText(bus)
-        self.setboot_reset.setCurrentText(reset)
-
     def read_setboot(self):
-        self.console.clear()
-        self.start_operation(10000, "READ SETBOOT")
-        try:
-            self.emmc.extcsd()
-        except Exception as e:
-            self.finish_operation(False, "SETBOOT ERROR")
-            self.console.log(f"SETBOOT READ ERROR: {e}")
+        self.open_setboot()
+        self.setboot.read_setboot()
 
     def write_setboot(self):
-        self.console.log(
-            "SETBOOT WRITE: not sent. RP2040 firmware has no validated EXT_CSD CMD6 write protocol."
-        )
+        self.open_setboot()
+        self.setboot.write_setboot()
 
     def _build_flash_page(self):
         page = QWidget()
@@ -595,6 +533,8 @@ class MainWindow(QMainWindow):
             title = "HEALTH"
         elif widget is self.special:
             title = "SPECIAL TASK"
+        elif widget is self.setboot:
+            title = "SETBOOT"
         elif widget is self.isp:
             title = "ISP TEST"
         else:
@@ -721,8 +661,13 @@ class MainWindow(QMainWindow):
     def on_special_selected(self, index):
         if index < 0:
             return
-        self.show_service(self.special)
+        # Special Task is an action menu, never a navigation control.
         self.special.select_task(index, execute=True)
+
+    def open_setboot(self):
+        # SetBoot is deliberately the opposite of Special Task: it opens
+        # the dedicated service page.
+        self.show_service(self.setboot)
 
     def refresh_device(self, auto_connect=True):
         self.port_combo.clear()
