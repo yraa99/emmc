@@ -310,9 +310,11 @@ static bool ext4_read_inode(uint32_t part_start, uint32_t part_sectors, bool hc,
     uint32_t group = (inode_no - 1u) / inodes_per_group;
     uint32_t index = (inode_no - 1u) % inodes_per_group;
     uint32_t gdt_block = (block_size == 1024u) ? 2u : 1u;
-    if (!ext4_read_block(part_start, part_sectors, hc, gdt_block, block_size, g_ext4_gdt)) return false;
-    uint64_t gd_off = (uint64_t)group * desc_size;
+    uint64_t gd_off_total = (uint64_t)group * desc_size;
+    uint32_t gd_block = gdt_block + (uint32_t)(gd_off_total / block_size);
+    uint32_t gd_off = (uint32_t)(gd_off_total % block_size);
     if (gd_off + 32u > block_size) return false;
+    if (!ext4_read_block(part_start, part_sectors, hc, gd_block, block_size, g_ext4_gdt)) return false;
     const uint8_t *gd = &g_ext4_gdt[gd_off];
     uint64_t inode_table = ext4_le32(&gd[8]);
     if (desc_size >= 64u) inode_table |= (uint64_t)ext4_le32(&gd[40]) << 32;
