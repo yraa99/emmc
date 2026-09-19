@@ -451,6 +451,10 @@ class IdentifyTab(QWidget):
         if self.busy:
             return
         self.busy = True
+        self.identity_parts = []
+        self.identity_index = 0
+        self.identity_active = False
+        self.identity_found = {"imei": "", "sn": "", "mac": ""}
         self.button.setEnabled(False)
         self.cancel.setEnabled(True)
         try:
