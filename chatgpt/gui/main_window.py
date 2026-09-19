@@ -6,6 +6,10 @@ from PyQt6.QtCore import QTimer, QDateTime, Qt
 
 from gui.console import Console
 from gui.identify import IdentifyTab
+from gui.boot_extcsd import BootExtCSDTab
+from gui.health import HealthTab
+from gui.special_task import SpecialTaskTab
+from gui.isp_test import ISPTestTab
 from gui.userarea import UserAreaTab
 from gui.adb_fastboot import ADBFastbootTab
 from gui.factory_image import FactoryImageTab
@@ -145,10 +149,10 @@ class MainWindow(QMainWindow):
 
         # Keep beta service objects available for protocol dispatch.
         # They are attached to MainWindow without changing the four-tab shell.
-        self.boot = None
-        self.health = None
-        self.special = None
-        self.isp = None
+        self.boot = BootExtCSDTab(self.emmc, self.console)
+        self.health = HealthTab(self.emmc, self.console)
+        self.special = SpecialTaskTab(self.emmc, self.console)
+        self.isp = ISPTestTab(self.emmc, self.console)
 
         self.tabs.addTab(self.tab_main, "MAIN")
         self.tabs.addTab(self.tab_userarea, "USER AREA")
