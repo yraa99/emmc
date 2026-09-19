@@ -1482,7 +1482,7 @@ static bool send_layout_result(void) {
   return app_send_text(out);
 }
 
-static bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len) {
+bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len) {
   emmc_id_data_t id;
   uint8_t r1[6];
   uint32_t i;
@@ -1723,7 +1723,7 @@ void proto_emmc_stop_all(void) {
   g_emmc.dump_active = false;
   g_emmc.scan_active = false;
   g_emmc.find_active = false;
-  emmc_diag_stage("RESULT_SENT");
+  emmc_dbg(2, "STOP_ALL");
   status_led_set_busy(false);
   if (g_emmc.tristate_default) emmc_apply_safe_io();
 }
