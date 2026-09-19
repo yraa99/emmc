@@ -80,8 +80,18 @@ class IdentifyTab(QWidget):
         self.set_value("Sector Size", f"{int(obj.get('sector_size', 512))} bytes")
         self.set_value("Bus Width", self.bus_width_text(int(obj.get("bus_width_mode", 0))))
         self.set_value("Clock", f"{int(obj.get('clock_hz', 200000)) / 1000:.0f} kHz (identify)")
-        self.set_value("Status", f"OK (OCR 0x{ocr:08X}, RCA {int(obj.get('rca', 0))})")
-        self.console.log("IDENTIFY RESULT OK")
+        status = f"OK (OCR 0x{ocr:08X}, RCA {int(obj.get('rca', 0))})"
+        self.set_value("Status", status)
+        self.console.log("eMMC IDENTIFY")
+        self.console.log(f"Manufacturer : {fields['manufacturer']}")
+        self.console.log(f"Model        : {fields['pnm']}")
+        self.console.log(f"CID          : {cid}")
+        self.console.log(f"CSD          : {csd}")
+        self.console.log(f"OCR          : 0x{ocr:08X}")
+        self.console.log(f"RCA          : {int(obj.get('rca', 0))}")
+        self.console.log(f"Capacity     : {self.table.item(12, 1).text() if self.table.item(12, 1) else '-'}")
+        self.console.log(f"EXT_CSD Rev  : {self.table.item(11, 1).text() if self.table.item(11, 1) else '-'}")
+        self.console.log("IDENTIFY OK")
         self.finish()
 
     def set_value(self, field, value):
