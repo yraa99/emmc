@@ -1749,6 +1749,7 @@ static void emmc_identify_once(void) {
     snprintf(out, sizeof(out),
              "{\"type\":\"emmc.identify.result\",\"ok\":false,\"stage\":\"CID_CSD\",\"msg\":\"%s\"}",
              id.msg[0] ? id.msg : "ID read failed");
+    strncat(out, "\\n", sizeof(out) - strlen(out) - 1u);
     (void)app_send_text(out);
     emmc_dbg(1, "IDENTIFY_RESULT_SENT");
     status_led_set_busy(false);
@@ -1771,6 +1772,7 @@ static void emmc_identify_once(void) {
              "\"cid\":\"%s\",\"csd\":\"%s\",\"ocr\":%lu,\"rca\":%u,\"msg\":\"%s\"}",
              cid_hex, csd_hex, (unsigned long)id.ocr, (unsigned)id.rca,
              msg[0] ? msg : "EXT_CSD read failed");
+    strncat(out, "\\n", sizeof(out) - strlen(out) - 1u);
     (void)app_send_text(out);
     emmc_dbg(1, "IDENTIFY_RESULT_SENT");
     status_led_set_busy(false);
@@ -1802,6 +1804,7 @@ static void emmc_identify_once(void) {
            (unsigned long)id.ocr, (unsigned)id.rca,
            (unsigned long long)capacity_bytes,
            (unsigned)ext_rev, (unsigned)bus_width);
+  strncat(out, "\\n", sizeof(out) - strlen(out) - 1u);
 
   bool sent = app_send_text(out);
   emmc_dbg(1, sent ? "IDENTIFY_RESULT_SENT" : "IDENTIFY_RESULT_SEND_FAILED");
