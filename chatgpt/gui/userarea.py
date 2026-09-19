@@ -182,7 +182,10 @@ class UserAreaTab(QWidget):
                     f"GPT READY - {len(self.partitions)} real partition(s), "
                     f"entries LBA={obj.get('entries_lba', '-')}"
                 )
-                self.read.setEnabled(True)
+                # Firmware sends GPT END before the synchronous build.prop scan.
+                # Keep READ disabled until build.prop END so a partition dump cannot
+                # be queued while the firmware is still inside app_handle_gpt().
+                self.read.setEnabled(not self.buildprop_busy)
             else:
                 self.console.log("GPT ERROR: valid GPT header found, but no valid partition entries were found")
                 self.read.setEnabled(False)
