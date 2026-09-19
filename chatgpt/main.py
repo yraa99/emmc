@@ -45,8 +45,21 @@ class App:
                 try:
                     obj = json.loads(raw)
                 except Exception:
-                    window.console.log(text)
-                    continue
+                    /*
+                     * Firmware debug text can be emitted immediately after a
+                     * JSON packet on the same USB CDC delivery. Parse the
+                     * first complete JSON value instead of dropping a valid
+                     * IDENTIFY/GPT result and waiting for the GUI timeout.
+                     */
+                    try:
+                        decoder = json.JSONDecoder()
+                        obj, end = decoder.raw_decode(raw.lstrip())
+                        trailing = raw.lstrip()[end:].strip()
+                        if trailing:
+                            window.console.log(trailing)
+                    except Exception:
+                        window.console.log(text)
+                        continue
 
                 # Realtime signal packets belong exclusively to ISP TEST.
                 # Do not pollute the normal Console / Log with high-rate status.
