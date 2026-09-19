@@ -69,9 +69,9 @@ class UserAreaTab(QWidget):
         self.status = QLabel("Select a partition and use BACKUP")
         layout.addWidget(self.status)
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
-            ["Partition", "Start LBA", "Sector", "Size", "Type", "Location"]
+            ["Partition", "Start LBA", "End LBA", "Sector", "Size", "Type", "Location"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -183,7 +183,7 @@ class UserAreaTab(QWidget):
         else:
             size_text = f"{size / 1024:.2f} KB"
         location = "SUPER" if logical else "USER"
-        values = (name, str(start), str(sectors), size_text, ptype, location)
+        end_lba = int(start) + int(sectors) - 1\n        values = (name, str(start), str(end_lba), str(sectors), size_text, ptype, location)
         for col, value in enumerate(values):
             cell = QTableWidgetItem(value)
             if item["status"] == "SECURITY":
@@ -299,7 +299,7 @@ class UserAreaTab(QWidget):
                     ]
                     row = self.table.rowCount() - 1
                     if row >= 0:
-                        self.table.setItem(row, 5, QTableWidgetItem("SUPER"))
+                        self.table.setItem(row, 6, QTableWidgetItem("SUPER"))
             except Exception:
                 pass
             return
@@ -332,7 +332,7 @@ class UserAreaTab(QWidget):
         if typ == "emmc.gpt.end":
             if obj.get("ok", True):
                 self.gpt_count = int(obj.get("partitions", self.gpt_count))
-                self.console.log(f"BOOT DEVICE OK : {self.gpt_count} user-area partitions")
+                self.console.log(f"BOOT DEVICE OK : {self.gpt_count} user-area partitions (real GPT LBAs/sizes)")
             if not self.buildprop_busy:
                 self.gpt_busy = False
                 self.gpt_timeout.stop()
@@ -362,7 +362,7 @@ class UserAreaTab(QWidget):
                     self.dump_file_base += self.dump_segments[self.dump_segment_index - 1][1] * 512
                     try:
                         start_lba, sector_count = self.dump_segments[self.dump_segment_index]
-                        self.emmc.dump_start(start_lba, sector_count, 512, True, 3)
+                        self.console.log(f"BACKUP SELECTED: {p["name"]} LBA={p["start"]} sectors={p["sectors"]} bytes={p["sectors"] * 512}")\n            self.emmc.dump_start(start_lba, sector_count, 512, True, 3)
                     except Exception as e:
                         self.console.log(f"BACKUP NEXT EXTENT ERROR: {e}")
                         self.finish_read(False)
