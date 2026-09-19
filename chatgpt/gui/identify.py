@@ -57,7 +57,7 @@ class IdentifyTab(QWidget):
 
         fields = [
             "Manufacturer", "MID", "CBX", "OID", "Model", "PRV",
-            "Serial Number", "Manufacturing Date", "CID", "CSD",
+            "eMMC Serial (CID)", "Device SN", "IMEI", "Wi-Fi MAC", "Manufacturing Date", "CID", "CSD",
             "EXT_CSD", "EXT_CSD Revision", "Capacity", "Sector Size",
             "Bus Width", "Clock", "BOOT1 Read", "BOOT2 Read",
             "EXT_CSD Read", "USERAREA Read", "BUILD.PROP", "Status"
@@ -143,7 +143,10 @@ class IdentifyTab(QWidget):
         self.set_value("OID", fields["oid"])
         self.set_value("Model", fields["pnm"])
         self.set_value("PRV", fields["prv"])
-        self.set_value("Serial Number", fields["psn"])
+        self.set_value("eMMC Serial (CID)", fields["psn"])
+        self.set_value("Device SN", str(obj.get("device_sn", "NOT FOUND")))
+        self.set_value("IMEI", str(obj.get("imei", "NOT FOUND")))
+        self.set_value("Wi-Fi MAC", str(obj.get("wifi_mac", "NOT FOUND")))
         self.set_value("Manufacturing Date", fields["mdt"])
 
         capacity_bytes = int(obj.get("capacity_bytes", 0))
