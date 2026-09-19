@@ -16,12 +16,12 @@ class IdentifyTab(QWidget):
     def setup(self):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("eMMC IDENTIFY"))
-        self.table = QTableWidget(16, 2)
+        self.table = QTableWidget(17, 2)
         self.table.setHorizontalHeaderLabels(["PARAMETER", "VALUE"])
         fields = [
             "Manufacturer", "MID", "CBX", "OID", "Model", "PRV",
             "Serial Number", "Manufacturing Date", "CID", "CSD",
-            "EXT_CSD", "Capacity", "Sector Size", "Bus Width", "Clock", "Status"
+            "EXT_CSD", "EXT_CSD Revision", "Capacity", "Sector Size", "Bus Width", "Clock", "Status"
         ]
         for i, f in enumerate(fields):
             self.table.setItem(i, 0, QTableWidgetItem(f))
@@ -49,9 +49,17 @@ class IdentifyTab(QWidget):
             return
         cid = str(obj.get("cid", ""))
         csd = str(obj.get("csd", ""))
+        ext = str(obj.get("ext_csd", ""))
         ocr = int(obj.get("ocr", 0))
+        if not cid or len(cid) != 32 or not csd or len(csd) != 32 or len(ext) != 1024:
+            self.console.log("IDENTIFY ERROR: incomplete CID/CSD/EXT_CSD response")
+            self.set_value("Status", "ERROR: incomplete register data")
+            self.finish()
+            return
+
         self.set_value("CID", cid)
         self.set_value("CSD", csd)
+        self.set_value("EXT_CSD", ext)
         fields = self.decode_cid(cid)
         self.set_value("Manufacturer", fields["manufacturer"])
         self.set_value("MID", fields["mid"])
@@ -61,12 +69,18 @@ class IdentifyTab(QWidget):
         self.set_value("PRV", fields["prv"])
         self.set_value("Serial Number", fields["psn"])
         self.set_value("Manufacturing Date", fields["mdt"])
-        self.set_value("Capacity", self.csd_capacity(csd))
-        self.set_value("Sector Size", "512 bytes")
-        self.set_value("Bus Width", "1-bit")
-        self.set_value("Clock", "400 kHz (identify)")
-        self.set_value("EXT_CSD", "Not requested")
-        self.set_value("Status", f"OK (OCR 0x{ocr:08X})")
+
+        capacity_bytes = int(obj.get("capacity_bytes", 0))
+        if capacity_bytes > 0:
+            self.set_value("Capacity", self.format_capacity(capacity_bytes))
+        else:
+            self.set_value("Capacity", self.ext_capacity(ext))
+
+        self.set_value("EXT_CSD Revision", f"0x{int(obj.get('ext_csd_rev', int(ext[384:386], 16) if len(ext) >= 386 else 0)):02X}")
+        self.set_value("Sector Size", f"{int(obj.get('sector_size', 512))} bytes")
+        self.set_value("Bus Width", self.bus_width_text(int(obj.get("bus_width_mode", 0))))
+        self.set_value("Clock", f"{int(obj.get('clock_hz', 200000)) / 1000:.0f} kHz (identify)")
+        self.set_value("Status", f"OK (OCR 0x{ocr:08X}, RCA {int(obj.get('rca', 0))})")
         self.console.log("IDENTIFY RESULT OK")
         self.finish()
 
@@ -89,28 +103,71 @@ class IdentifyTab(QWidget):
             prv = b[9]
             psn = int.from_bytes(b[10:14], "big")
             mdt = b[14]
+            year = 2010 + ((mdt >> 4) & 0x0F)
+            month = mdt & 0x0F
+            cbx_names = {0: "Device", 1: "BGA", 2: "POP", 3: "Reserved"}
             manufacturers = {
+                0x00: "SanDisk",
+                0x02: "Kingston/SanDisk",
+                0x03: "Toshiba",
+                0x11: "Toshiba",
                 0x13: "Micron",
-                0x15: "Samsung",
-                0x11: "Toshiba/Kioxia",
-                0x45: "SanDisk/Western Digital",
-                0xAD: "SK hynix",
+                0x15: "Samsung/SanDisk/LG",
+                0x2C: "Kingston",
+                0x37: "KingMax",
+                0x44: "ATP",
+                0x45: "SanDisk Corporation",
+                0x70: "Kingston",
+                0x90: "SK hynix",
+                0xFE: "Micron/Numonyx",
             }
             return {
                 "manufacturer": manufacturers.get(mid, "Unknown"),
                 "mid": f"0x{mid:02X}",
-                "cbx": f"0x{cbx:02X}",
+                "cbx": f"0x{cbx:02X} ({cbx_names.get(cbx, 'Unknown')})",
                 "oid": f"0x{oid:02X}",
                 "pnm": pnm,
                 "prv": f"0x{prv:02X}",
                 "psn": f"0x{psn:08X}",
-                "mdt": f"0x{mdt:02X}",
+                "mdt": f"{month:02d}/{year}" if 1 <= month <= 12 else f"0x{mdt:02X}",
             }
         except Exception:
             return {
                 "manufacturer": "", "mid": "", "cbx": "", "oid": "",
                 "pnm": "", "prv": "", "psn": "", "mdt": ""
             }
+
+    @staticmethod
+    @staticmethod
+    def format_capacity(value):
+        if value >= 1024**4:
+            return f"{value / 1024**4:.2f} TB"
+        if value >= 1024**3:
+            return f"{value / 1024**3:.2f} GB"
+        if value >= 1024**2:
+            return f"{value / 1024**2:.2f} MB"
+        return f"{value / 1024:.2f} KB"
+
+    @staticmethod
+    def ext_capacity(ext):
+        try:
+            b = bytes.fromhex(ext)
+            if len(b) != 512:
+                return ""
+            sectors = int.from_bytes(b[212:216], "little")
+            return IdentifyTab.format_capacity(sectors * 512)
+        except Exception:
+            return ""
+
+    @staticmethod
+    def bus_width_text(mode):
+        return {
+            0: "1-bit",
+            1: "4-bit",
+            2: "8-bit",
+            5: "4-bit DDR",
+            6: "8-bit DDR",
+        }.get(mode & 0x07, f"mode {mode}")
 
     @staticmethod
     def cid_mid(cid):
@@ -151,7 +208,7 @@ class IdentifyTab(QWidget):
         self.console.log("IDENTIFY REQUEST")
         try:
             self.emmc.identify()
-            self.timeout.start(15000)
+            self.timeout.start(30000)
         except Exception as e:
             self.console.log(f"IDENTIFY ERROR: {e}")
             self.finish()
@@ -166,7 +223,7 @@ class IdentifyTab(QWidget):
         self.finish()
 
     def on_timeout(self):
-        self.console.log("IDENTIFY TIMEOUT (15s) - RP2040 tidak memberi hasil")
+        self.console.log("IDENTIFY TIMEOUT (30s) - RP2040 tidak memberi hasil")
         self.finish()
 
     def finish(self):
