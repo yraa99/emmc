@@ -85,6 +85,7 @@ typedef struct {
   bool dump_active;
   bool dump_hc_addressing;
   uint16_t dump_rca;
+  uint8_t dump_partition;
   uint32_t dump_start_lba;
   uint32_t dump_total_blocks;
   uint32_t dump_done_blocks;
@@ -147,6 +148,7 @@ static emmc_state_t g_emmc = {
     .dump_active = false,
     .dump_hc_addressing = false,
     .dump_rca = 1u,
+    .dump_partition = 0u,
     .dump_start_lba = 0u,
     .dump_total_blocks = 0u,
     .dump_done_blocks = 0u,
@@ -1484,6 +1486,40 @@ static bool send_layout_result(void) {
   return app_send_text(out);
 }
 
+static bool emmc_switch_partition(uint16_t rca, uint8_t partition, char *msg, size_t msg_len) {
+  uint8_t r1[6];
+  uint32_t arg;
+  uint32_t i;
+  uint32_t deadline;
+  if (partition > 2u) {
+    if (msg && msg_len) snprintf(msg, msg_len, "Invalid eMMC partition %u", (unsigned)partition);
+    return false;
+  }
+  /* EXT_CSD[179] PARTITION_CONFIG: keep ACK/boot settings, change only PARTITION_ACCESS [2:0].
+     CMD6 access=3 (write byte), index=179, value=current config with selected access. */
+  arg = (3u << 24u) | (179u << 16u) | (partition & 0x07u);
+  for (i = 0; i < EMMC_CMDX_RETRIES; i++) {
+    if (emmc_send_cmd_raw(6u, arg, 48u, r1, sizeof(r1))) break;
+    emmc_send_retry_idle();
+  }
+  if (i >= EMMC_CMDX_RETRIES) {
+    if (msg && msg_len) snprintf(msg, msg_len, "CMD6 partition switch failed");
+    return false;
+  }
+  /* CMD6 is busy on DAT0 until the switch is complete. */
+  deadline = now_ms() + 1000u;
+  while (!gpio_get(EMMC_DAT0_PIN)) {
+    if ((int32_t)(now_ms() - deadline) >= 0) {
+      if (msg && msg_len) snprintf(msg, msg_len, "CMD6 partition switch timeout");
+      return false;
+    }
+    tud_task();
+    tight_loop_contents();
+  }
+  emmc_send_idle_clocks(8u);
+  return true;
+}
+
 bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len) {
   emmc_id_data_t id;
   uint8_t r1[6];
@@ -1963,6 +1999,17 @@ bool proto_emmc_handle_text(const char *type, const char *json) {
       (void)send_dump_status("error", msg);
       return true;
     }
+    g_emmc.dump_partition = 0u;
+    if (json_extract_u32(json, "partition", &v) && v <= 2u) {
+      g_emmc.dump_partition = (uint8_t)v;
+    }
+    if (g_emmc.dump_partition != 0u) {
+      if (!emmc_switch_partition(rca, g_emmc.dump_partition, msg, sizeof(msg))) {
+        g_emmc.dump_active = false;
+        (void)send_dump_status("error", msg);
+        return true;
+      }
+    }
     g_emmc.dump_rca = rca;
     g_emmc.dump_hc_addressing = hc;
     g_emmc.dump_active = true;
@@ -2150,6 +2197,13 @@ void proto_emmc_poll(void) {
       if (emmc_prepare_card_for_data(&rec_rca, &rec_hc, rec_msg, sizeof(rec_msg))) {
         g_emmc.dump_rca = rec_rca;
         g_emmc.dump_hc_addressing = rec_hc;
+        if (g_emmc.dump_partition != 0u &&
+            !emmc_switch_partition(rec_rca, g_emmc.dump_partition, rec_msg, sizeof(rec_msg))) {
+          g_emmc.dump_active = false;
+          if (g_emmc.tristate_default) emmc_apply_safe_io();
+          (void)send_dump_status("error", rec_msg);
+          return;
+        }
         g_emmc.dump_last_progress_ms = now;
         (void)send_dump_status("running", "stall detected; link recovered");
         g_emmc.dump_last_status_ms = now;
@@ -2191,6 +2245,13 @@ void proto_emmc_poll(void) {
             if (emmc_prepare_card_for_data(&rca, &hc, recover_msg, sizeof(recover_msg))) {
               g_emmc.dump_rca = rca;
               g_emmc.dump_hc_addressing = hc;
+              if (g_emmc.dump_partition != 0u &&
+                  !emmc_switch_partition(rca, g_emmc.dump_partition, g_emmc_data_err, sizeof(g_emmc_data_err))) {
+                g_emmc.dump_active = false;
+                if (g_emmc.tristate_default) emmc_apply_safe_io();
+                (void)send_dump_status("error", g_emmc_data_err);
+                return;
+              }
             }
             return;
           }
