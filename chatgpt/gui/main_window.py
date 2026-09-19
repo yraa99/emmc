@@ -241,7 +241,7 @@ class MainWindow(QMainWindow):
         try:
             self.progress_bar.setValue(max(self.progress_bar.value(), 70))
             self.operation_label.setText("Scanning GPT / build.prop...")
-            self.userarea.scanGPT()
+            self.tab_userarea.scanGPT()
         except Exception as e:
             self.console.log(f"READ GPT ERROR: {e}")
 
@@ -405,10 +405,28 @@ class MainWindow(QMainWindow):
         elif kind == "emmc.layout.result":
             if packet.get("ok", False):
                 self.progress_bar.setValue(100)
-                self.operation_label.setText("eMMC HEALTH / EXT_CSD complete")
+                self.operation_label.setText("eMMC HEALTH CHECK complete")
                 self.footer_status.setText("Ready")
                 self.btn_cancel.setEnabled(False)
                 self.operation_timer.stop()
+                try:
+                    ext = bytes.fromhex(str(packet.get("ext_csd_hex", "")))
+                    if len(ext) == 512:
+                        life_a, life_b, pre_eol, rpmb = ext[268], ext[269], ext[267], ext[168]
+                        life_text = lambda v: "N/A" if v == 0 else f"{v * 10 - 9}%–{v * 10}%" if 1 <= v <= 10 else f"0x{v:02X}"
+                        pre_text = {1: "NORMAL", 2: "WARNING", 3: "URGENT"}.get(pre_eol, f"0x{pre_eol:02X}")
+                        self.console.log("eMMC HEALTH OK")
+                        self.console.log(f"DEVICE_LIFE_TIME_A: 0x{life_a:02X} ({life_text(life_a)})")
+                        self.console.log(f"DEVICE_LIFE_TIME_B: 0x{life_b:02X} ({life_text(life_b)})")
+                        self.console.log(f"PRE_EOL_INFO: 0x{pre_eol:02X} ({pre_text})")
+                        self.console.log(f"RPMB STATUS: 0x{rpmb:02X}")
+                        self.tab_main.set_value("Status", f"HEALTH: {pre_text}")
+                    else:
+                        self.console.log("HEALTH ERROR: EXT_CSD payload tidak lengkap")
+                        self.finish_operation(False)
+                except Exception as e:
+                    self.console.log(f"HEALTH PARSE ERROR: {e}")
+                    self.finish_operation(False)
             else:
                 self.finish_operation(False)
         elif kind == "emmc.gpt.result":
