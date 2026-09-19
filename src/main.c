@@ -429,9 +429,18 @@ static bool ext4_extent_lookup(const buildprop_candidate_t *candidate, bool hc,
         uint32_t first = ext4_le32(best);
         uint16_t len = ext4_le16(&best[4]) & 0x7FFFu;
         if (logical_block >= first + len) return false;
-        *physical_block = ((uint64_t)ext4_le32(&best[4]) |
-                            ((uint64_t)ext4_le16(&best[8]) << 32)) +
-                           (logical_block - first);
+        /* ext4_extent layout:
+         *   ee_block @0
+         *   ee_len   @4
+         *   ee_start_hi @6
+         *   ee_start_lo @8
+         * The previous code treated ee_len as the physical LBA, which
+         * breaks extent-backed system/vendor partitions and makes
+         * build.prop appear missing even though the filesystem is valid.
+         */
+        uint64_t extent_start = (uint64_t)ext4_le32(&best[8]) |
+                                ((uint64_t)ext4_le16(&best[6]) << 32);
+        *physical_block = extent_start + (logical_block - first);
         return true;
     }
 
@@ -951,9 +960,29 @@ static bool ext4_read_buildprop(const buildprop_candidate_t *candidate, bool hc,
     }
 
     uint32_t build_inode = 0u;
-    if (!ext4_scan_directory_for_name(candidate, hc, g_ext4_root_inode, block_size,
-                                      "build.prop", &build_inode)) {
-        snprintf(msg, msg_len, "build.prop not found in EXT4 root directory");
+    bool build_found = ext4_scan_directory_for_name(
+        candidate, hc, g_ext4_root_inode, block_size, "build.prop", &build_inode);
+
+    /*
+     * Android images are not uniform: classic images may expose
+     * /build.prop at the partition root, while newer layouts can keep the
+     * property file under /etc/build.prop. Try both before declaring the
+     * partition unsupported.
+     */
+    if (!build_found) {
+        uint32_t etc_inode_no = 0u;
+        if (ext4_scan_directory_for_name(
+                candidate, hc, g_ext4_root_inode, block_size, "etc", &etc_inode_no) &&
+            ext4_read_inode(candidate, hc, block_size, inode_size, inodes_per_group,
+                            desc_size, etc_inode_no, g_ext4_file_inode,
+                            sizeof(g_ext4_file_inode))) {
+            build_found = ext4_scan_directory_for_name(
+                candidate, hc, g_ext4_file_inode, block_size, "build.prop", &build_inode);
+        }
+    }
+
+    if (!build_found) {
+        snprintf(msg, msg_len, "build.prop not found in partition root or /etc");
         return false;
     }
 
