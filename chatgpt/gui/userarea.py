@@ -250,9 +250,22 @@ class UserAreaTab(QWidget):
                 int(obj.get("start_lba", 0)),
                 int(obj.get("sectors", 0)),
                 "LOGICAL",
-                "READ-ONLY MAP",
+                "READY",
                 True,
             )
+            try:
+                extents = obj.get("extents", [])
+                if isinstance(extents, list) and self.partitions:
+                    self.partitions[-1]["extents"] = [
+                        (int(x.get("start", 0)), int(x.get("sectors", 0)))
+                        for x in extents
+                        if isinstance(x, dict) and int(x.get("sectors", 0)) > 0
+                    ]
+                    row = self.table.rowCount() - 1
+                    if row >= 0:
+                        self.table.setItem(row, 5, QTableWidgetItem("READY"))
+            except Exception:
+                pass
             return
 
         if typ == "emmc.gpt.begin":
