@@ -82,8 +82,6 @@ class IdentifyTab(QWidget):
             return
         if obj.get("type") != "emmc.identify.result":
             return
-        if obj.get("type") != "emmc.identify.result":
-            return
         if not obj.get("ok", False):
             self.console.log("IDENTIFY ERROR: " + str(obj.get("msg", "unknown error")))
             self.set_value("Status", "ERROR")
