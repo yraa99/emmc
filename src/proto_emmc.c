@@ -1818,61 +1818,6 @@ void proto_emmc_stop_all(void) {
   if (g_emmc.tristate_default) emmc_apply_safe_io();
 }
 
-static bool emmc_identify_full_read_area(uint8_t partition, uint32_t total_blocks, const char *name, char *msg, size_t msg_len) {
-  uint16_t rca = 0u;
-  bool hc = false;
-  uint8_t scratch[EMMC_DUMP_BLOCK_SIZE];
-  uint32_t done = 0u;
-  uint32_t last_report = UINT32_MAX;
-  if (!name || total_blocks == 0u) return true;
-  if (!emmc_prepare_card_for_data(&rca, &hc, msg, msg_len)) return false;
-  g_emmc.dump_rca = rca;
-  g_emmc.dump_hc_addressing = hc;
-  if (partition != 0u && !emmc_switch_partition(rca, partition, msg, msg_len)) return false;
-  {
-    char out[192];
-    snprintf(out, sizeof(out),
-             "{\"type\":\"emmc.identify.area\",\"area\":\"%s\",\"state\":\"start\",\"total_blocks\":%lu}\n",
-             name, (unsigned long)total_blocks);
-    if (!app_send_text(out)) return false;
-  }
-  for (done = 0u; done < total_blocks; ++done) {
-    if (!emmc_read_block(done, hc, scratch, msg, msg_len)) {
-      if (partition != 0u) {
-        char restore_msg[96];
-        (void)emmc_switch_partition(rca, 0u, restore_msg, sizeof(restore_msg));
-      }
-      return false;
-    }
-    if (done == 0u || (done + 1u) == total_blocks || (done + 1u - last_report) >= 256u) {
-      char out[224];
-      uint32_t completed = done + 1u;
-      last_report = completed;
-      snprintf(out, sizeof(out),
-               "{\"type\":\"emmc.identify.progress\",\"area\":\"%s\",\"done_blocks\":%lu,\"total_blocks\":%lu,\"percent\":%lu}\n",
-               name, (unsigned long)completed, (unsigned long)total_blocks,
-               (unsigned long)(((uint64_t)completed * 100ull) / (uint64_t)total_blocks));
-      if (!app_send_text(out)) return false;
-      tud_task();
-    }
-  }
-  if (partition != 0u) {
-    char restore_msg[96];
-    if (!emmc_switch_partition(rca, 0u, restore_msg, sizeof(restore_msg))) {
-      if (msg && msg_len) snprintf(msg, msg_len, "partition restore failed: %s", restore_msg);
-      return false;
-    }
-  }
-  {
-    char out[192];
-    snprintf(out, sizeof(out),
-             "{\"type\":\"emmc.identify.area\",\"area\":\"%s\",\"state\":\"complete\",\"total_blocks\":%lu}\n",
-             name, (unsigned long)total_blocks);
-    if (!app_send_text(out)) return false;
-  }
-  return true;
-}
-
 static void emmc_identify_once(void) {
   emmc_id_data_t id;
   uint8_t ext[EMMC_DUMP_BLOCK_SIZE];
@@ -1945,31 +1890,16 @@ static void emmc_identify_once(void) {
   ext_rev = ext[192];
   bus_width = ext[183];
 
-  /* IDENTIFY reads the complete BOOT1, BOOT2 and USERAREA data areas.
-     EXT_CSD is already read as a complete 512-byte register block above.
-     The GPT/build.prop scanner is also triggered here so IDENTIFY includes
-     Android build.prop discovery. BACKUP remains a separate GUI operation. */
+  /* IDENTIFY uses lightweight LBA0 probes for BOOT1, BOOT2 and USERAREA.
+     This keeps IDENTIFY fast while still proving each data area is readable.
+     EXT_CSD is returned in full. GPT/build.prop discovery runs immediately
+     so the console receives build.prop information during IDENTIFY. */
   boot1_ok = emmc_read_area_probe(1u, 0u, boot1_probe, msg, sizeof(msg));
   boot2_ok = emmc_read_area_probe(2u, 0u, boot2_probe, msg, sizeof(msg));
   user_ok = emmc_read_area_probe(0u, 0u, user_probe, msg, sizeof(msg));
 
+  /* GPT scan also drives the existing Android build.prop scanner. */
   (void)app_handle_gpt();
-
-  {
-    uint32_t boot_blocks = ((uint32_t)ext[226]) * 256u;
-    uint32_t user_blocks = sec_count;
-    bool full_boot1 = true;
-    bool full_boot2 = true;
-    bool full_user = true;
-    if (boot_blocks > 0u) {
-      full_boot1 = emmc_identify_full_read_area(1u, boot_blocks, "BOOT1", msg, sizeof(msg));
-      full_boot2 = emmc_identify_full_read_area(2u, boot_blocks, "BOOT2", msg, sizeof(msg));
-    }
-    full_user = emmc_identify_full_read_area(0u, user_blocks, "USERAREA", msg, sizeof(msg));
-    boot1_ok = boot1_ok && full_boot1;
-    boot2_ok = boot2_ok && full_boot2;
-    user_ok = user_ok && full_user;
-  }
 
   {
     bool identify_ok = boot1_ok && boot2_ok && user_ok && ext_ok;
@@ -1980,13 +1910,13 @@ static void emmc_identify_once(void) {
            "\"sector_size\":512,\"ext_csd_rev\":%u,\"bus_width_mode\":%u,"
            "\"clock_hz\":200000,\"boot1_read\":%s,\"boot2_read\":%s,"
            "\"extcsd_read\":true,\"userarea_read\":%s}",
+           identify_ok ? "true" : "false",
            cid_hex, csd_hex, ext_hex,
            (unsigned long)id.ocr, (unsigned)id.rca,
            (unsigned long long)capacity_bytes,
            (unsigned)ext_rev, (unsigned)bus_width,
            boot1_ok ? "true" : "false", boot2_ok ? "true" : "false",
-           user_ok ? "true" : "false",
-           identify_ok ? "true" : "false");
+           user_ok ? "true" : "false");
   strncat(out, "\\n", sizeof(out) - strlen(out) - 1u);
 
   bool sent = app_send_text(out);
