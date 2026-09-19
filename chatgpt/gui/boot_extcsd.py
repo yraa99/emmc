@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt
+import os
 
 
 class BootExtCSDTab(QWidget):
@@ -20,6 +21,11 @@ class BootExtCSDTab(QWidget):
         self.emmc = emmc
         self.console = console
         self.ext_csd = None
+        self.boot_size_sectors = 0
+        self.boot_file_handle = None
+        self.boot_expected = 0
+        self.boot_received = 0
+        self.boot_partition = 0
         self.setup()
 
     def _button(self, text):
@@ -43,9 +49,10 @@ class BootExtCSDTab(QWidget):
         self.writeBoot1 = self._button("WRITE BOOT1")
         self.writeBoot2 = self._button("WRITE BOOT2")
 
-        for b in (self.readBoot1, self.readBoot2, self.writeBoot1, self.writeBoot2):
-            b.setEnabled(False)
-            b.setToolTip("Disabled: safe BOOT partition switch/read/write protocol is not active.")
+        self.writeBoot1.setEnabled(False)
+        self.writeBoot2.setEnabled(False)
+        self.writeBoot1.setToolTip("Write protocol is not implemented.")
+        self.writeBoot2.setToolTip("Write protocol is not implemented.")
 
         self.readBoot1.clicked.connect(lambda: self.bootRead(1))
         self.readBoot2.clicked.connect(lambda: self.bootRead(2))
@@ -133,8 +140,11 @@ class BootExtCSDTab(QWidget):
         except ValueError:
             self.ext_csd = None
 
-        vals = {
-            "PARTITION_CONFIG": obj.get("partition_config", "-"),
+        self.boot_size_sectors = int(obj.get("boot_bytes_each", 0)) // 512
+        self.readBoot1.setEnabled(self.boot_size_sectors > 0)
+        self.readBoot2.setEnabled(self.boot_size_sectors > 0)
+
+        vals = {            "PARTITION_CONFIG": obj.get("partition_config", "-"),
             "BOOT_SIZE_MULT": obj.get("boot_size_mult", "-"),
             "RPMB_SIZE_MULT": self.ext_csd[168] if self.ext_csd and len(self.ext_csd) > 168 else "-",
             "BOOT_BUS_WIDTH": ((self.ext_csd[177] & 0x07) if self.ext_csd and len(self.ext_csd) > 177 else "-"),
@@ -168,7 +178,82 @@ class BootExtCSDTab(QWidget):
             self.console.log(f"EXT_CSD SAVE ERROR: {e}")
 
     def bootRead(self, part):
-        self.console.log(f"READ BOOT{part}: disabled until partition-switch/read protocol is implemented")
+        if self.boot_size_sectors <= 0:
+            self.console.log("BOOT READ: EXT_CSD has not reported BOOT partition size")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Save BOOT{part} backup", f"boot{part}.bin",
+            "Binary image (*.bin *.img);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            if self.boot_file_handle:
+                self.boot_file_handle.close()
+            self.boot_file_handle = open(path, "w+b")
+            self.boot_file_handle.truncate(self.boot_size_sectors * 512)
+        except OSError as e:
+            self.boot_file_handle = None
+            self.console.log(f"BOOT{part} FILE ERROR: {e}")
+            return
+        self.boot_partition = int(part)
+        self.boot_expected = self.boot_size_sectors * 512
+        self.boot_received = 0
+        self.readBoot1.setEnabled(False)
+        self.readBoot2.setEnabled(False)
+        try:
+            self.emmc.dump_start(0, self.boot_size_sectors, 512, True, 3, self.boot_partition)
+            self.console.log(f"BOOT{part} BACKUP START: {path}")
+        except Exception as e:
+            self.console.log(f"BOOT{part} READ ERROR: {e}")
+            self._finish_boot(False)
+
+    def handle_binary_data(self, frame):
+        if not self.boot_file_handle or len(frame) < 8 or frame[0] != 0xB0:
+            return
+        ch = frame[1]
+        offset = int.from_bytes(frame[2:6], "little")
+        count = int.from_bytes(frame[6:8], "little")
+        if ch == 0x04:
+            payload = frame[8:8 + count]
+        elif ch == 0x05 and len(frame) >= 9:
+            payload = bytes([frame[8]]) * count
+        else:
+            return
+        if len(payload) != count:
+            return
+        self.boot_file_handle.seek(offset)
+        self.boot_file_handle.write(payload)
+        self.boot_received = max(self.boot_received, offset + count)
+
+    def handle_serial_data(self, obj):
+        if obj.get("type") == "emmc.dump.status" and self.boot_file_handle:
+            state = str(obj.get("state", ""))
+            if state == "complete":
+                self._finish_boot(True)
+                return
+            if state in ("error", "stopped"):
+                self._finish_boot(False)
+                return
+        if obj.get("type") != "emmc.layout.result":
+            return
+
+    def _finish_boot(self, success):
+        path = getattr(self.boot_file_handle, "name", None) if self.boot_file_handle else None
+        if self.boot_file_handle:
+            try:
+                self.boot_file_handle.flush()
+                self.boot_file_handle.close()
+            except OSError:
+                pass
+        self.boot_file_handle = None
+        self.boot_partition = 0
+        self.readBoot1.setEnabled(self.boot_size_sectors > 0)
+        self.readBoot2.setEnabled(self.boot_size_sectors > 0)
+        if success and self.boot_received >= self.boot_expected:
+            self.console.log(f"BOOT BACKUP COMPLETE: {path}")
+        elif path:
+            self.console.log(f"BOOT BACKUP FAILED: {path}")
 
     def bootWrite(self, part):
-        self.console.log(f"WRITE BOOT{part}: disabled until write protocol is implemented")
+        self.console.log(f"WRITE BOOT{part}: write protocol is not implemented")
