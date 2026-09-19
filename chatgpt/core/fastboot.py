@@ -33,8 +33,9 @@ class Fastboot:
                 text=True
             )
 
-
-            return result.stdout.strip()
+            output = result.stdout.strip()
+            error = result.stderr.strip()
+            return output if output else error
 
 
         except Exception as e:
