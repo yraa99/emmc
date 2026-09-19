@@ -132,7 +132,7 @@ class App:
                             main_binary(bytes(data))
                         except Exception as e:
                             window.console.log(f"UI MAIN BINARY ERROR: {e}")
-                    for tab in (window.userarea, window.boot, window.health, window.special, window.setboot):
+                    for tab in (window.identify, window.userarea, window.boot, window.health, window.special, window.setboot):
                         handler = getattr(tab, "handle_binary_data", None)
                         if handler:
                             try:
