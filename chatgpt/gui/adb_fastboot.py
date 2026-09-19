@@ -221,7 +221,7 @@ class ADBFastbootTab(QWidget):
         self.app_table.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu
         )
-
+        self.app_table.customContextMenuRequested.connect(self.context_menu)
 
         main.addWidget(
             self.app_table
