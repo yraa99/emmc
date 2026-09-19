@@ -502,31 +502,22 @@ static uint16_t crc16_ccitt_bytes(const uint8_t *data, size_t len) {
 }
 
 static bool emmc_validate_r3(const uint8_t *r3) {
-  uint8_t frame[5];
-  uint8_t crc;
-  uint8_t i;
-
   if (!r3) return false;
 
-  /* Response is stored MSB-first:
-     buffer [0] = response [47] START
-     buffer [1:2] = response [46:45] transmission
-     buffer [3:8] = response [44:39] command index
-     buffer [9:39] = response [38:8] OCR
-     buffer [40:46] = response [7:1] CRC7
-     buffer [47] = response [0] END. */
+  /* R3 is NOT CRC-protected. For eMMC CMD1 the fixed fields are:
+     response [47]   = START      0
+     response [46]   = TRANSMIT   0
+     response [45:40] = reserved  0b111111
+     response [39:8]  = OCR
+     response [7:1]   = reserved  0b1111111
+     response [0]    = END        1
+     The buffer is stored MSB-first, so these map directly to
+     buffer bits 0..47. */
   if (bitbuf_get(r3, 0u) != 0u) return false;
-  if (bitbuf_get_u32(r3, 1u, 2u) != 0u) return false;
-  if (bitbuf_get_u32(r3, 3u, 6u) != 1u) return false;
+  if (bitbuf_get(r3, 1u) != 0u) return false;
+  if (bitbuf_get_u32(r3, 2u, 6u) != 0x3Fu) return false;
+  if (bitbuf_get_u32(r3, 40u, 7u) != 0x7Fu) return false;
   if (bitbuf_get(r3, 47u) != 1u) return false;
-
-  /* Rebuild response bytes [47:8] and verify CRC7 [7:1]. */
-  memset(frame, 0, sizeof(frame));
-  for (i = 0u; i < 40u; i++) {
-    bitbuf_set(frame, i, bitbuf_get(r3, i));
-  }
-  crc = crc7_bytes(frame, sizeof(frame));
-  if (bitbuf_get_u32(r3, 40u, 7u) != crc) return false;
 
   return true;
 }
@@ -691,8 +682,8 @@ static bool emmc_try_read_ids(emmc_id_data_t *out) {
       if (emmc_send_cmd_raw(1u, cmd1_args[arg_i], 48u, r1, sizeof(r1))) {
         if (!emmc_validate_r3(r1)) {
           char msg[128];
-          snprintf(msg, sizeof(msg), "CMD1 invalid R3: CMDIDX=%lu OCR=%08lX CRC=%02lX",
-                   (unsigned long)bitbuf_get_u32(r1, 3u, 6u),
+          snprintf(msg, sizeof(msg), "CMD1 invalid R3: RESERVED1=%02lX OCR=%08lX RESERVED2=%02lX",
+                   (unsigned long)bitbuf_get_u32(r1, 2u, 6u),
                    (unsigned long)bitbuf_get_u32(r1, 8u, 32u),
                    (unsigned long)bitbuf_get_u32(r1, 40u, 7u));
           emmc_dbg(2, msg);
