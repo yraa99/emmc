@@ -2044,7 +2044,7 @@ static void emmc_identify_once(void) {
   user_ok = emmc_read_area_probe(0u, 0u, user_probe, msg, sizeof(msg));
 
   /* GPT scan also drives the existing Android build.prop scanner. */
-  (void)app_handle_gpt();
+  (void)app_handle_gpt(true);
 
   {
     bool identify_ok = boot1_ok && boot2_ok && user_ok && ext_ok;
