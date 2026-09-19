@@ -898,7 +898,7 @@ class MainWindow(QMainWindow):
         # or open another tab; the result is routed to IdentifyTab by main.py.
         self.identify_sequence = False
         try:
-            self.start_operation(30000, "IDENTIFY")
+            self.start_operation(24 * 60 * 60 * 1000, "IDENTIFY")
             self.emmc.identify()
         except Exception as e:
             self.finish_operation(False, "IDENTIFY ERROR")
@@ -926,9 +926,13 @@ class MainWindow(QMainWindow):
         if not isinstance(obj, dict):
             return
         typ = obj.get("type")
-        if typ == "emmc.identify.result":
+        if typ == "emmc.identify.progress":
+            percent = int(obj.get("percent", 0))
+            self.progress.setValue(max(0, min(100, percent)))
+            self.operation_label.setText(f"IDENTIFY {obj.get('area', '')} {percent}%")
+        elif typ == "emmc.identify.result":
             if obj.get("ok"):
-                self.operation_label.setText("IDENTIFY OK")
+                self.finish_operation(True, "IDENTIFY OK")
                 if self.identify_sequence:
                     self.identify_sequence = False
                     self.main_gpt()
