@@ -96,17 +96,8 @@ class App:
                 }:
                     return
                 if kind == "emmc.dump.status":
-                    state = str(packet.get("state", ""))
-                    if state in ("complete", "error", "stopped"):
-                        window.console.log(
-                            f"BACKUP {state}: {packet.get('detail', '')}".strip()
-                        )
-                    return
-                if kind == "emmc.pin_test.result":
-                    window.console.log(
-                        f"ISP {packet.get('pin', '?')}: "
-                        f"{'OK' if packet.get('ok') else 'FAILED'}"
-                    )
+                    # Dump owners already emit the user-facing terminal log.
+                    # Do not echo the same event here.
                     return
                 if kind == "firmware.info":
                     window.console.log(
