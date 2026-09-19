@@ -118,7 +118,7 @@ class UserAreaTab(QWidget):
             self.partitions[-1]["partition"] = 1
             self._add_partition("BOOT 2", 0, self.boot_sectors, "BOOT", "READY", False)
             self.partitions[-1]["partition"] = 2
-        self._add_partition(self.meta_label, 0, self.primary_meta_sectors, "METADATA", "READY", False)
+        self._add_partition(self.meta_label, self.primary_meta_lba, self.primary_meta_sectors, "METADATA", "READY", False)
         if self.partitions:
             self.partitions[-1]["metadata_only"] = True
 
