@@ -478,7 +478,7 @@ static bool ext4_read_inode(const buildprop_candidate_t *candidate, bool hc,
     uint64_t gd_off_total = (uint64_t)group * desc_size;
     uint32_t gd_block = gdt_block + (uint32_t)(gd_off_total / block_size);
     uint32_t gd_off = (uint32_t)(gd_off_total % block_size);
-    if (gd_off + 32u > block_size) return false;
+    if (gd_off + desc_size > block_size) return false;
     if (!ext4_read_block(candidate, hc, gd_block, block_size, g_ext4_gdt)) return false;
     const uint8_t *gd = &g_ext4_gdt[gd_off];
     uint64_t inode_table = ext4_le32(&gd[8]);
