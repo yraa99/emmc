@@ -157,7 +157,7 @@ class UserAreaTab(QWidget):
             self.gpt_busy = False
             self.buildprop_busy = False
             self.status.setText("GPT request failed")
-                self.console.log(f"GPT ERROR: {e}")
+            self.console.log(f"GPT ERROR: {e}")
 
     def _add_partition(self, name, start, sectors, ptype="GPT", status="READY", logical=False):
         if not name or sectors <= 0:
@@ -336,7 +336,7 @@ class UserAreaTab(QWidget):
             if not self.buildprop_busy:
                 self.gpt_busy = False
                 self.gpt_timeout.stop()
-                        self.read.setEnabled(bool(self.partitions))
+                self.read.setEnabled(bool(self.partitions))
             return
 
         if typ == "emmc.gpt.result":
