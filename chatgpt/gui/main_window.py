@@ -66,6 +66,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1050, 680)
 
         self.init_ui()
+        QApplication.instance().installEventFilter(self)
 
         # All beta service objects use the same log sink as the active GUI.
         for service in (
@@ -440,6 +441,12 @@ class MainWindow(QMainWindow):
             self.setStyleSheet("QMainWindow,QWidget{background:#111417;color:#d7dde2;font-family:Segoe UI;font-size:10pt;}QLabel{color:#d7dde2;}QGroupBox{border:1px solid #30373d;border-radius:5px;margin-top:7px;padding-top:5px;font-weight:bold;color:#aeb8c0;}QGroupBox::title{subcontrol-origin:margin;left:8px;padding:0 5px;color:#9da8b0;}QPushButton{background:#20262b;border:1px solid #3b444b;border-radius:4px;padding:4px 10px;color:#dce2e6;min-height:28px;}QPushButton:hover{background:#293137;}QPushButton:disabled{color:#596168;background:#171b1e;}QComboBox,QSpinBox{background:#181d21;border:1px solid #3a434a;border-radius:4px;padding:4px 7px;color:#dce2e6;min-height:24px;}QTabWidget::pane{border:1px solid #30373d;background:#151a1e;}QTabBar::tab{background:#1b2024;border:1px solid #30373d;padding:7px 12px;color:#8f9aa3;}QTabBar::tab:selected{background:#30383f;color:#fff;}QSplitter::handle{background:#30383e;width:4px;}QProgressBar{border:1px solid #30373d;border-radius:4px;background:#181d21;text-align:center;color:#d7dde2;min-height:18px;}QProgressBar::chunk{background:#46535d;}")
         else:
             self.setStyleSheet("QMainWindow,QWidget{background:#f2f4f6;color:#20252a;font-family:Segoe UI;font-size:10pt;}QLabel{color:#20252a;}QGroupBox{border:1px solid #c6ccd2;border-radius:5px;margin-top:7px;padding-top:5px;font-weight:bold;color:#4b545c;}QGroupBox::title{subcontrol-origin:margin;left:8px;padding:0 5px;color:#4b545c;background:#f2f4f6;}QPushButton{background:#fff;border:1px solid #b8c0c7;border-radius:4px;padding:4px 10px;color:#20252a;min-height:28px;}QPushButton:hover{background:#e8edf1;}QPushButton:disabled{color:#9aa2a9;background:#e6e9ec;}QComboBox,QSpinBox{background:#fff;border:1px solid #b8c0c7;border-radius:4px;padding:4px 7px;color:#20252a;min-height:24px;}QTabWidget::pane{border:1px solid #c6ccd2;background:#fff;}QTabBar::tab{background:#e6e9ec;border:1px solid #c6ccd2;padding:7px 12px;color:#4b545c;}QTabBar::tab:selected{background:#fff;color:#111;}QSplitter::handle{background:#c1c7cc;width:4px;}QProgressBar{border:1px solid #c6ccd2;border-radius:4px;background:#fff;text-align:center;color:#20252a;min-height:18px;}QProgressBar::chunk{background:#7b8791;}")
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.MouseButtonPress and isinstance(obj, QPushButton) and obj.isEnabled():
+            self.log_text.clear()
+            self.progress_bar.setValue(0)
+        return super().eventFilter(obj, event)
+
     def eventFilter(self, obj, event):
         if event.type() == QEvent.Type.MouseButtonPress and isinstance(obj, QPushButton) and obj.isEnabled():
             self.log_text.clear()
