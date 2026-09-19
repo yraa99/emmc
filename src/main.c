@@ -492,6 +492,52 @@ static bool ext4_read_inode(const buildprop_candidate_t *candidate, bool hc,
     return true;
 }
 
+static bool ext4_scan_dir_block_for_name(const uint8_t *block, uint32_t block_size,
+                                        const char *wanted, uint32_t *out_inode) {
+    uint32_t off = 0u;
+    if (!block || !wanted || !out_inode) return false;
+    while (off + 8u <= block_size) {
+        uint32_t ino = ext4_le32(&block[off]);
+        uint16_t rec = ext4_le16(&block[off + 4u]);
+        uint8_t nlen = block[off + 6u];
+        if (rec < 8u || (rec & 3u) != 0u || off + rec > block_size) break;
+        if (ino && nlen == strlen(wanted) &&
+            memcmp(&block[off + 8u], wanted, nlen) == 0) {
+            *out_inode = ino;
+            return true;
+        }
+        off += rec;
+    }
+    return false;
+}
+
+static bool ext4_scan_htree_node(const buildprop_candidate_t *candidate, bool hc,
+                                 uint32_t block_size, uint32_t fs_block,
+                                 uint8_t depth, const char *wanted,
+                                 uint32_t *out_inode) {
+    if (!candidate || !wanted || !out_inode || depth > 3u) return false;
+    if (!ext4_read_block(candidate, hc, fs_block, block_size, g_ext4_block)) return false;
+
+    if (depth == 0u) {
+        return ext4_scan_dir_block_for_name(g_ext4_block, block_size, wanted, out_inode);
+    }
+
+    uint16_t count = ext4_le16(&g_ext4_block[10]);
+    if (count < 2u) return false;
+    uint16_t entries = (uint16_t)(count - 1u);
+    uint16_t max_entries = (uint16_t)((block_size - 0x12u) / 8u);
+    if (entries > max_entries) entries = max_entries;
+
+    for (uint16_t i = 0u; i < entries; ++i) {
+        uint32_t child = ext4_le32(&g_ext4_block[0x12u + i * 8u + 4u]);
+        if (child && ext4_scan_htree_node(candidate, hc, block_size, child,
+                                          (uint8_t)(depth - 1u), wanted, out_inode)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool ext4_scan_directory_for_name(const buildprop_candidate_t *candidate, bool hc,
                                          const uint8_t *dir_inode, uint32_t block_size,
                                          const char *wanted, uint32_t *out_inode) {
@@ -501,26 +547,35 @@ static bool ext4_scan_directory_for_name(const buildprop_candidate_t *candidate,
     if (blocks64 == 0u || blocks64 > 4096u) return false;
 
     bool indexed = (ext4_le32(&dir_inode[32]) & 0x1000u) != 0u;
-    (void)indexed; /* HTree leaf blocks remain valid classic dirent blocks. */
 
+    if (indexed && blocks64 > 0u) {
+        uint32_t root_phys = 0u;
+        if (ext4_inode_data_block(candidate, hc, dir_inode, block_size, 0u, &root_phys) &&
+            ext4_read_block(candidate, hc, root_phys, block_size, g_ext4_block)) {
+            uint8_t indirect_levels = g_ext4_block[0x1Eu];
+            uint16_t count = ext4_le16(&g_ext4_block[0x22u]);
+            uint16_t max_entries = (uint16_t)((block_size - 0x28u) / 8u);
+            if (indirect_levels <= 3u && count >= 2u) {
+                uint16_t entries = (uint16_t)(count - 1u);
+                if (entries > max_entries) entries = max_entries;
+                for (uint16_t i = 0u; i < entries; ++i) {
+                    uint32_t child = ext4_le32(&g_ext4_block[0x28u + i * 8u + 4u]);
+                    if (child && ext4_scan_htree_node(candidate, hc, block_size, child,
+                                                      indirect_levels, wanted, out_inode)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    /* Corrupt/old HTree metadata must not make build.prop unreadable. The
+       classic directory representation remains a valid read-only fallback. */
     for (uint32_t logical = 0u; logical < (uint32_t)blocks64; ++logical) {
         uint32_t phys = 0u;
         if (!ext4_inode_data_block(candidate, hc, dir_inode, block_size, logical, &phys)) continue;
         if (!ext4_read_block(candidate, hc, phys, block_size, g_ext4_block)) continue;
-
-        uint32_t off = 0u;
-        while (off + 8u <= block_size) {
-            uint32_t ino = ext4_le32(&g_ext4_block[off]);
-            uint16_t rec = ext4_le16(&g_ext4_block[off + 4u]);
-            uint8_t nlen = g_ext4_block[off + 6u];
-            if (rec < 8u || (rec & 3u) != 0u || off + rec > block_size) break;
-            if (ino && nlen == strlen(wanted) &&
-                memcmp(&g_ext4_block[off + 8u], wanted, nlen) == 0) {
-                *out_inode = ino;
-                return true;
-            }
-            off += rec;
-        }
+        if (ext4_scan_dir_block_for_name(g_ext4_block, block_size, wanted, out_inode)) return true;
     }
     return false;
 }
