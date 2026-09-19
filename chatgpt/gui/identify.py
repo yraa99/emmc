@@ -311,7 +311,7 @@ class IdentifyTab(QWidget):
             return
         end = offset + count
         if end > len(self.identity_buffer):
-            self.identity_buffer.extend(b"\\x00" * (end - len(self.identity_buffer)))
+            self.identity_buffer.extend(bytes(end - len(self.identity_buffer)))
         self.identity_buffer[offset:end] = payload
 
     def _handle_identity_dump_status(self, state):
