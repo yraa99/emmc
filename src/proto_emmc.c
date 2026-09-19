@@ -1,5 +1,7 @@
 #include "proto_emmc.h"
 
+extern bool app_handle_gpt(void);
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -1827,6 +1829,10 @@ bool proto_emmc_handle_text(const char *type, const char *json) {
 
   if (!starts_with(type, "emmc.")) return false;
 
+  if (strcmp(type, "emmc.gpt") == 0) {
+    proto_emmc_stop_all();
+    return app_handle_gpt();
+  }
   if (strcmp(type, "emmc.identify") == 0) {
     proto_emmc_stop_all();
     emmc_identify_once();
