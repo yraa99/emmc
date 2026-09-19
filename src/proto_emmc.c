@@ -2017,7 +2017,12 @@ bool proto_emmc_handle_text(const char *type, const char *json) {
     return true;
   }
   if (strcmp(type, "emmc.dump.stop") == 0) {
+    if (g_emmc.dump_partition != 0u && g_emmc.dump_rca != 0u) {
+      char restore_msg[96];
+      (void)emmc_switch_partition(g_emmc.dump_rca, 0u, restore_msg, sizeof(restore_msg));
+    }
     g_emmc.dump_active = false;
+    g_emmc.dump_partition = 0u;
     if (g_emmc.tristate_default) emmc_apply_safe_io();
     (void)send_dump_status("stopped", "dump stopped by user");
     return true;
@@ -2218,7 +2223,17 @@ void proto_emmc_poll(void) {
       uint16_t remain;
       uint16_t n_send;
       if (g_emmc.dump_done_blocks >= g_emmc.dump_total_blocks) {
+        if (g_emmc.dump_partition != 0u && g_emmc.dump_rca != 0u) {
+          char restore_msg[96];
+          if (!emmc_switch_partition(g_emmc.dump_rca, 0u, restore_msg, sizeof(restore_msg))) {
+            g_emmc.dump_active = false;
+            if (g_emmc.tristate_default) emmc_apply_safe_io();
+            (void)send_dump_status("error", restore_msg);
+            return;
+          }
+        }
         g_emmc.dump_active = false;
+        g_emmc.dump_partition = 0u;
         if (g_emmc.tristate_default) emmc_apply_safe_io();
         (void)send_dump_status("complete", "dump complete");
         return;
