@@ -622,6 +622,8 @@ static void r2_extract_payload_128(const uint8_t *r2_136, uint8_t out16[16]) {
 
 static void snapshot_levels(void);
 bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len);
+static bool emmc_switch_partition(uint16_t rca, uint8_t partition, char *msg, size_t msg_len);
+bool emmc_read_block(uint32_t lba, bool hc_addressing, uint8_t out[EMMC_DUMP_BLOCK_SIZE], char *msg, size_t msg_len);
 
 static void emmc_restore_dump_partition(void) {
   if (g_emmc.dump_partition != 0u && g_emmc.dump_rca != 0u) {
@@ -1924,6 +1926,7 @@ static void emmc_identify_once(void) {
   tud_task();
   status_led_set_busy(false);
   if (g_emmc.tristate_default) emmc_apply_safe_io();
+  }
 }
 
 void proto_emmc_on_client_close(void) {
