@@ -70,6 +70,7 @@ class App:
                 window.boot,
                 window.userarea,
                 window.health,
+                window.special,
                 window.isp,
             ):
                 handler = getattr(tab, "handle_serial_data", None)
