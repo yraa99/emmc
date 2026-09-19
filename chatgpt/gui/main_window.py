@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QPushButton, QTextEdit, QProgressBar, QTabWidget, QSplitter
 )
-from PyQt6.QtCore import QTimer, QDateTime, Qt
+from PyQt6.QtCore import QTimer, QDateTime, Qt, QEvent
 
 # VISUAL SOURCE OF TRUTH: yraa99/gui
 from gui.tabs.main_tab import MainTab
@@ -46,6 +46,9 @@ class MainWindow(QMainWindow):
         self.serial = serial_core
         self.identify_sequence = False
         self.dark_theme = True
+        self.operation_timer = QTimer(self)
+        self.operation_timer.setSingleShot(True)
+        self.operation_timer.timeout.connect(self.operation_timeout)
 
         # Beta functional objects. These are the protocol/service handlers;
         # they are deliberately not added as extra top-level tabs.
@@ -188,6 +191,20 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.tabs)
         splitter.setSizes([360, 920])
         main_layout.addWidget(splitter)
+        operation_row = QHBoxLayout()
+        operation_row.setSpacing(6)
+        self.operation_label = QLabel("Ready")
+        self.footer_status = QLabel("Ready")
+        self.btn_cancel = QPushButton("CANCEL")
+        self.btn_cancel.setEnabled(False)
+        self.btn_cancel.setMaximumWidth(100)
+        self.progress = self.progress_bar
+        operation_row.addWidget(self.operation_label)
+        operation_row.addWidget(self.progress_bar, 1)
+        operation_row.addWidget(self.footer_status)
+        operation_row.addWidget(self.btn_cancel)
+        main_layout.addLayout(operation_row)
+        self.btn_cancel.clicked.connect(self.cancel_operation)
 
         self._wire_beta_functions_to_gui_tabs()
         self.refresh_ports(auto_connect=True)
@@ -382,6 +399,12 @@ class MainWindow(QMainWindow):
                 self.console.log(
                     "IDENTIFY ERROR: " + str(packet.get("msg", "unknown error"))
                 )
+
+    def operation_timeout(self):
+        self.btn_cancel.setEnabled(False)
+        self.operation_label.setText("Operation timeout")
+        self.footer_status.setText("Timeout")
+        self.console.log("OPERATION TIMEOUT - no response from RP2040")
 
     def begin_command(self, label):
         self.log_text.clear()
