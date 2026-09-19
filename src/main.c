@@ -814,15 +814,40 @@ static int send_buildprop_for_candidate(const buildprop_candidate_t *candidate, 
 static void scan_buildprop_after_gpt(bool hc) {
     bool found = false;
     app_send_text("{\"type\":\"emmc.buildprop.scan\",\"state\":\"start\"}\n");
+
+    /* First try real GPT partitions. This keeps legacy/non-dynamic Android
+       devices fast and also covers devices where build.prop lives outside super. */
     for (uint32_t i = 0u; i < g_buildprop_candidate_count; ++i) {
+        if (g_buildprop_candidates[i].logical) continue;
         int rc = send_buildprop_for_candidate(&g_buildprop_candidates[i], hc);
         if (rc < 0) return;
         if (rc > 0) { found = true; break; }
     }
+
+    /* Android dynamic partitions: parse liblp metadata in super and then
+       inspect logical system/system_ext/vendor/product/odm partitions. */
+    if (!found && gpt_has_super_partition) {
+        buildprop_candidate_t super_candidate;
+        memset(&super_candidate, 0, sizeof(super_candidate));
+        strncpy(super_candidate.name, "super", sizeof(super_candidate.name) - 1u);
+        super_candidate.start_lba = g_super_start_lba;
+        super_candidate.sectors = g_super_sectors;
+        super_candidate.logical = false;
+
+        uint32_t before = g_buildprop_candidate_count;
+        (void)scan_dynamic_super_candidates(&super_candidate, hc);
+
+        for (uint32_t i = before; i < g_buildprop_candidate_count; ++i) {
+            int rc = send_buildprop_for_candidate(&g_buildprop_candidates[i], hc);
+            if (rc < 0) return;
+            if (rc > 0) { found = true; break; }
+        }
+    }
+
     if (found) {
         app_send_text("{\"type\":\"emmc.buildprop.end\",\"ok\":true}\n");
     } else if (gpt_has_super_partition) {
-        app_send_text("{\"type\":\"emmc.buildprop.end\",\"ok\":false,\"msg\":\"No physical Android partition found; GPT contains super with logical partitions not parsed by this firmware yet\"}\n");
+        app_send_text("{\"type\":\"emmc.buildprop.end\",\"ok\":false,\"msg\":\"No supported build.prop found in physical or Android logical partitions\"}\n");
     } else {
         app_send_text("{\"type\":\"emmc.buildprop.end\",\"ok\":false,\"msg\":\"No supported build.prop found in physical Android partitions\"}\n");
     }
