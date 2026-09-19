@@ -138,6 +138,9 @@ class UserAreaTab(QWidget):
             return
         if typ == "emmc.buildprop.end":
             self.buildprop_busy = False
+            self.gpt_timeout.stop()
+            self.scan.setEnabled(True)
+            self.read.setEnabled(bool(self.partitions))
             if not self.buildprop_found:
                 self.buildprop_status.setText("build.prop not found / unsupported filesystem")
                 self.console.log("BUILD.PROP: no supported build.prop found during SCAN GPT")
@@ -206,7 +209,7 @@ class UserAreaTab(QWidget):
                 self.finish_read(False)
 
     def on_gpt_timeout(self):
-        if not self.gpt_busy:
+        if not self.gpt_busy and not self.buildprop_busy:
             return
         self.gpt_busy = False
         self.buildprop_busy = False
