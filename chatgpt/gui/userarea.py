@@ -168,7 +168,8 @@ class UserAreaTab(QWidget):
                 self.table.setItem(row, c, QTableWidgetItem(v))
             return
         if typ == "emmc.gpt.end":
-            self.gpt_timeout.stop()
+            if not self.buildprop_busy:
+                self.gpt_timeout.stop()
             self.gpt_busy = False
             count = int(obj.get("partitions", len(self.partitions)))
             if count > 0 and len(self.partitions) > 0:
