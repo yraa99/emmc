@@ -197,6 +197,10 @@ class UserAreaTab(QWidget):
         for label, value in fields:
             if value:
                 self.console.log(f"{label}: {value}")
+        if not imei:
+            self.console.log("IMEI: Not exposed by build.prop")
+        if not mac:
+            self.console.log("MAC: Not exposed by build.prop")
 
         if self.partitions:
             total = sum(p["sectors"] for p in self.partitions if not p["logical"])
