@@ -89,6 +89,8 @@ class App:
                     "emmc.buildprop.result",
                     "emmc.buildprop.end",
                     "emmc.layout.result",
+                    "emmc.lp.result",
+                    "emmc.lp.begin",
                 }:
                     return
                 if kind == "emmc.dump.status":
