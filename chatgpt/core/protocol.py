@@ -75,9 +75,10 @@ class Protocol:
     def layout(self):
         self.send_command("READ_EXTCSD")
 
-    def dump_start(self, start_lba, block_count, chunk_bytes=512, use_pio=True, auto_retries=3):
+    def dump_start(self, start_lba, block_count, chunk_bytes=512, use_pio=True, auto_retries=3, partition=0):
         payload = {
             "type": "emmc.dump.start",
+            "partition": int(partition),
             "start_lba": int(start_lba),
             "block_count": int(block_count),
             "chunk_bytes": int(chunk_bytes),
