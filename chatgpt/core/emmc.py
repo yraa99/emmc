@@ -73,3 +73,13 @@ class EMMC:
 
     def erase(self, start, count):
         self.protocol.erase(start, count)
+
+
+    def special_task(self, task):
+        self.protocol.special_task(task)
+
+    def setboot_read(self):
+        self.protocol.setboot_read()
+
+    def setboot_write(self, boot_partition=0, bus_width=2, reset=0, boot_mode=0, ack=0):
+        self.protocol.setboot_write(boot_partition, bus_width, reset, boot_mode, ack)
