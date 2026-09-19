@@ -73,6 +73,15 @@ class IdentifyTab(QWidget):
         self.cancel.clicked.connect(self.cancel_identify)
 
     def handle_serial_data(self, obj):
+        if obj.get("type") == "emmc.layout.result":
+            self.health_check.setEnabled(True)
+            if obj.get("ok", False):
+                self.console.log("eMMC HEALTH CHECK OK")
+            else:
+                self.console.log("HEALTH CHECK ERROR: " + str(obj.get("msg", "unknown error")))
+            return
+        if obj.get("type") != "emmc.identify.result":
+            return
         if obj.get("type") != "emmc.identify.result":
             return
         if not obj.get("ok", False):
