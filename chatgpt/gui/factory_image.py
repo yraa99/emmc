@@ -15,7 +15,7 @@ class FactoryImageTab(QWidget):
     """
 
     FILTERS = (
-        "Factory Images (*.xml *.scatter *.txt *.pac *.ofp *.bin *.img *.zip)",
+        "Factory Images (*.xml *.xlm *.scatter *.txt *.pac *.ofp *.bin *.img *.zip)",
         "XML (*.xml)",
         "Scatter (*.scatter *.txt)",
         "PAC (*.pac)",
@@ -107,7 +107,7 @@ class FactoryImageTab(QWidget):
 
     def detect_format(self, path):
         ext = os.path.splitext(path)[1].lower()
-        if ext == ".xml":
+        if ext in (".xml", ".xlm"):
             return "XML"
         if ext in (".scatter", ".txt"):
             return "SCATTER"
