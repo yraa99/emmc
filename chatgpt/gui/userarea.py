@@ -72,7 +72,7 @@ class UserAreaTab(QWidget):
         title.setObjectName("section_title")
         layout.addWidget(title)
 
-        self.status = QLabel("Identify + Read GPT to load the partition map")
+        self.status = QLabel("Identify + BOOT DEVICE to load the partition map")
         layout.addWidget(self.status)
 
         self.table = QTableWidget(0, 6)
@@ -93,7 +93,7 @@ class UserAreaTab(QWidget):
         self.actions_widget = QWidget()
         self.actions_widget.setLayout(actions)
         actions.setSpacing(8)
-        self.scan = QPushButton("READ GPT")
+        self.scan = QPushButton("BOOT DEVICE")
         self.read = QPushButton("BACKUP")
         self.write = QPushButton("WRITE")
         self.stop = QPushButton("STOP")
@@ -147,7 +147,7 @@ class UserAreaTab(QWidget):
         self.stop.setEnabled(False)
         self.partitions.clear()
         self.table.setRowCount(0)
-        self.status.setText("Reading GPT and Android system information...")
+        self.status.setText("Reading boot device and Android system information...")
         try:
             # Load hardware-area sizes first so BOOT1/BOOT2 rows are always
             # present before GPT partitions are appended.
@@ -381,8 +381,8 @@ class UserAreaTab(QWidget):
         self.buildprop_busy = False
         self.scan.setEnabled(True)
         self.read.setEnabled(bool(self.partitions))
-        self.status.setText("GPT/system scan timeout")
-        self.console.log("SCAN GPT TIMEOUT (120s)")
+        self.status.setText("BOOT DEVICE/system scan timeout")
+        self.console.log("BOOT DEVICE TIMEOUT (120s)")
         try:
             self.emmc.stop_tests()
         except Exception:
