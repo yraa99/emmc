@@ -42,7 +42,7 @@ class UserAreaTab(QWidget):
         self._buildprop_data = []
         self.setup()
 
-    def setup(self):
+    def hide_main_chrome(self):\n        """Hide controls when the live partition table is embedded in MAIN."""\n        for widget in (getattr(self, "title", None), getattr(self, "status", None), getattr(self, "actions_widget", None)):\n            if widget is not None:\n                widget.hide()\n        for button in (getattr(self, "scan", None), getattr(self, "read", None), getattr(self, "write", None), getattr(self, "stop", None)):\n            if button is not None:\n                button.hide()\n\n    def show_service_controls(self):\n        for widget in (getattr(self, "title", None), getattr(self, "status", None), getattr(self, "actions_widget", None)):\n            if widget is not None:\n                widget.show()\n        for button in (getattr(self, "scan", None), getattr(self, "read", None), getattr(self, "write", None), getattr(self, "stop", None)):\n            if button is not None:\n                button.show()\n\n    def setup(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -56,7 +56,7 @@ class UserAreaTab(QWidget):
 
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["PARTITION", "START LBA", "SECTORS", "SIZE", "TYPE", "STATUS"]
+            ["Partition", "Start LBA", "Sector", "Size", "Type", "Location"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -68,7 +68,7 @@ class UserAreaTab(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table, 1)
 
-        actions = QHBoxLayout()
+        actions = QHBoxLayout()\n        self.actions_widget = QWidget()\n        self.actions_widget.setLayout(actions)
         actions.setSpacing(8)
         self.scan = QPushButton("READ GPT")
         self.read = QPushButton("READ / BACKUP")
@@ -149,7 +149,7 @@ class UserAreaTab(QWidget):
             size_text = f"{size / 1024**2:.2f} MB"
         else:
             size_text = f"{size / 1024:.2f} KB"
-        values = (name, str(start), str(sectors), size_text, ptype, status)
+        location = "SUPER" if logical else "USER"\n        values = (name, str(start), str(sectors), size_text, ptype, location)
         for col, value in enumerate(values):
             self.table.setItem(row, col, QTableWidgetItem(value))
 
@@ -263,7 +263,7 @@ class UserAreaTab(QWidget):
                     ]
                     row = self.table.rowCount() - 1
                     if row >= 0:
-                        self.table.setItem(row, 5, QTableWidgetItem("READY"))
+                        self.table.setItem(row, 5, QTableWidgetItem("SUPER"))
             except Exception:
                 pass
             return
