@@ -389,7 +389,7 @@ static bool ext4_read_block(const buildprop_candidate_t *candidate, bool hc,
 }
 
 static bool ext4_extent_lookup(const buildprop_candidate_t *candidate, bool hc,
-                               const uint8_t *node, uint16_t depth,
+                               const uint8_t *node, uint16_t depth, uint32_t block_size,
                                uint32_t logical_block, uint64_t *physical_block) {
     uint16_t entries;
     if (!candidate || !node || !physical_block) return false;
@@ -425,8 +425,8 @@ static bool ext4_extent_lookup(const buildprop_candidate_t *candidate, bool hc,
 
     uint64_t child = (uint64_t)ext4_le32(&best[4]) | ((uint64_t)ext4_le16(&best[8]) << 32);
     if (child > UINT32_MAX) return false;
-    if (!ext4_read_block(candidate, hc, (uint32_t)child, GPT_BUILDPROP_MAX_BLOCK > 4096u ? 4096u : 4096u, g_ext4_block)) return false;
-    return ext4_extent_lookup(candidate, hc, g_ext4_block, (uint16_t)(depth - 1u), logical_block, physical_block);
+    if (!ext4_read_block(candidate, hc, (uint32_t)child, block_size, g_ext4_block)) return false;
+    return ext4_extent_lookup(candidate, hc, g_ext4_block, (uint16_t)(depth - 1u), block_size, logical_block, physical_block);
 }
 
 static bool ext4_inode_data_block(const buildprop_candidate_t *candidate, bool hc,
@@ -437,7 +437,7 @@ static bool ext4_inode_data_block(const buildprop_candidate_t *candidate, bool h
         const uint8_t *root = &inode[40];
         uint16_t depth = ext4_le16(&root[6]);
         uint64_t physical = 0u;
-        if (depth > 5u || !ext4_extent_lookup(candidate, hc, root, depth, logical_block, &physical) ||
+        if (depth > 5u || !ext4_extent_lookup(candidate, hc, root, depth, block_size, logical_block, &physical) ||
             physical > UINT32_MAX) return false;
         *physical_block = (uint32_t)physical;
         return true;
