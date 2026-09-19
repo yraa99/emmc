@@ -8,6 +8,7 @@ class IdentifyTab(QWidget):
         self.emmc = emmc
         self.console = console
         self.busy = False
+        self.health_check_busy = False
         self.timeout = QTimer(self)
         self.timeout.setSingleShot(True)
         self.timeout.timeout.connect(self.on_timeout)
@@ -74,11 +75,13 @@ class IdentifyTab(QWidget):
 
     def handle_serial_data(self, obj):
         if obj.get("type") == "emmc.layout.result":
-            self.health_check.setEnabled(True)
-            if obj.get("ok", False):
-                self.console.log("eMMC HEALTH CHECK OK")
-            else:
-                self.console.log("HEALTH CHECK ERROR: " + str(obj.get("msg", "unknown error")))
+            if self.health_check_busy:
+                self.health_check_busy = False
+                if obj.get("ok", False):
+                    self.console.log("eMMC HEALTH CHECK OK")
+                else:
+                    self.console.log("HEALTH CHECK ERROR: " + str(obj.get("msg", "unknown error")))
+                self.health_check.setEnabled(True)
             return
         if obj.get("type") != "emmc.identify.result":
             return
@@ -252,12 +255,15 @@ class IdentifyTab(QWidget):
             return ""
 
     def health_check_clicked(self):
+        if self.busy:
+            return
+        self.health_check_busy = True
         self.health_check.setEnabled(False)
-        self.console.log("eMMC HEALTH CHECK")
         try:
             self.emmc.layout()
         except Exception as e:
             self.console.log(f"HEALTH CHECK ERROR: {e}")
+            self.health_check_busy = False
             self.health_check.setEnabled(True)
 
     def identify(self):
