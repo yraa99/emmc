@@ -58,7 +58,8 @@ class IdentifyTab(QWidget):
             "Manufacturer", "MID", "CBX", "OID", "Model", "PRV",
             "Serial Number", "Manufacturing Date", "CID", "CSD",
             "EXT_CSD", "EXT_CSD Revision", "Capacity", "Sector Size",
-            "Bus Width", "Clock", "Status"
+            "Bus Width", "Clock", "BOOT1 Read", "BOOT2 Read",
+            "EXT_CSD Read", "USERAREA Read", "Status"
         ]
         for i, f in enumerate(fields):
             self.table.setItem(i, 0, QTableWidgetItem(f))
@@ -110,6 +111,10 @@ class IdentifyTab(QWidget):
         self.set_value("Sector Size", f"{int(obj.get('sector_size', 512))} bytes")
         self.set_value("Bus Width", self.bus_width_text(int(obj.get("bus_width_mode", 0))))
         self.set_value("Clock", f"{int(obj.get('clock_hz', 200000)) / 1000:.0f} kHz (identify)")
+        self.set_value("BOOT1 Read", "OK" if obj.get("boot1_read") else "FAILED")
+        self.set_value("BOOT2 Read", "OK" if obj.get("boot2_read") else "FAILED")
+        self.set_value("EXT_CSD Read", "OK" if obj.get("extcsd_read") else "FAILED")
+        self.set_value("USERAREA Read", "OK" if obj.get("userarea_read") else "FAILED")
         status = f"OK (OCR 0x{ocr:08X}, RCA {int(obj.get('rca', 0))})"
         self.set_value("Status", status)
         self.console.log("eMMC IDENTIFY")
