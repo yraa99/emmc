@@ -105,7 +105,7 @@ class IdentifyTab(QWidget):
             mdt = b[14]
             year = 2010 + ((mdt >> 4) & 0x0F)
             month = mdt & 0x0F
-            cbx_names = {0: "Device", 1: "BGA", 2: "POP", 3: "Reserved"}
+            cbx_names = {0: "Card", 1: "BGA", 2: "POP", 3: "Reserved"}
             manufacturers = {
                 0x00: "SanDisk",
                 0x02: "Kingston/SanDisk",
@@ -114,12 +114,18 @@ class IdentifyTab(QWidget):
                 0x13: "Micron",
                 0x15: "Samsung/SanDisk/LG",
                 0x2C: "Kingston",
+                0x12: "Gigastone",
+                0x13: "Micron",
+                0x15: "Samsung/SanDisk/LG",
+                0x27: "Apacer",
+                0x2C: "Kingston",
                 0x37: "KingMax",
                 0x44: "ATP",
                 0x45: "SanDisk Corporation",
+                0x5D: "Swissbit",
                 0x70: "Kingston",
                 0x90: "SK hynix",
-                0xFE: "Micron/Numonyx",
+                0xFE: "Micron",
             }
             return {
                 "manufacturer": manufacturers.get(mid, "Unknown"),
