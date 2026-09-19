@@ -94,15 +94,34 @@ class SetBootTab(QWidget):
 
     def handle_serial_data(self, obj):
         typ = obj.get("type")
-        if typ == "emmc.setboot.result":
-            if obj.get("ok"):
-                self.console.log(
-                    "SETBOOT OK: "
-                    f"PARTITION_CONFIG=0x{int(obj.get('partition_config', 0)):02X} "
-                    f"BOOT_PARTITION_ENABLE={obj.get('boot_partition', '?')} "
-                    f"PARTITION_ACCESS={obj.get('partition_access', '?')} "
-                    f"BOOT_ACK={obj.get('boot_ack', '?')} "
-                    f"BOOT_BUS_WIDTH=0x{int(obj.get('boot_bus_width', 0)):02X}"
-                )
-            else:
-                self.console.log("SETBOOT ERROR: " + str(obj.get("msg", "unknown error")))
+        if typ != "emmc.setboot.result":
+            return
+        if not obj.get("ok"):
+            self.console.log("SETBOOT ERROR: " + str(obj.get("msg", "unknown error")))
+            return
+
+        part = int(obj.get("boot_partition", 0))
+        source = {0: "Disabled", 1: "BOOT1", 2: "BOOT2", 7: "User Area"}.get(part)
+        if source:
+            self.source.setCurrentText(source)
+
+        raw_bus = int(obj.get("boot_bus_raw", 0))
+        width = raw_bus & 0x03
+        mode = (raw_bus >> 3) & 0x03
+        reset = (raw_bus >> 2) & 0x01
+        ack = int(obj.get("boot_ack", 0))
+
+        self.bus.setCurrentText({0: "x1", 1: "x4", 2: "x8"}.get(width, "x8"))
+        self.reset.setCurrentText("reset" if reset else "retain")
+        self.ack.setCurrentText("Enabled" if ack else "Disabled")
+        if mode <= 2:
+            self.mode.setCurrentIndex(mode)
+
+        self.console.log(
+            "SETBOOT OK: "
+            f"PARTITION_CONFIG=0x{int(obj.get('partition_config', 0)):02X} "
+            f"BOOT_PARTITION_ENABLE={part} "
+            f"PARTITION_ACCESS={obj.get('partition_access', '?')} "
+            f"BOOT_ACK={ack} "
+            f"BOOT_BUS_RAW=0x{raw_bus:02X}"
+        )
