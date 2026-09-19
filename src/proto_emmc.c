@@ -1971,8 +1971,10 @@ static void emmc_identify_once(void) {
     user_ok = user_ok && full_user;
   }
 
-  snprintf(out, sizeof(out),
-           "{\"type\":\"emmc.identify.result\",\"ok\":true,"
+  {
+    bool identify_ok = boot1_ok && boot2_ok && user_ok && ext_ok;
+    snprintf(out, sizeof(out),
+           "{\"type\":\"emmc.identify.result\",\"ok\":%s,"
            "\"cid\":\"%s\",\"csd\":\"%s\",\"ext_csd\":\"%s\","
            "\"ocr\":%lu,\"rca\":%u,\"capacity_bytes\":%llu,"
            "\"sector_size\":512,\"ext_csd_rev\":%u,\"bus_width_mode\":%u,"
@@ -1983,7 +1985,8 @@ static void emmc_identify_once(void) {
            (unsigned long long)capacity_bytes,
            (unsigned)ext_rev, (unsigned)bus_width,
            boot1_ok ? "true" : "false", boot2_ok ? "true" : "false",
-           user_ok ? "true" : "false");
+           user_ok ? "true" : "false",
+           identify_ok ? "true" : "false");
   strncat(out, "\\n", sizeof(out) - strlen(out) - 1u);
 
   bool sent = app_send_text(out);
