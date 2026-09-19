@@ -293,16 +293,14 @@ class MainWindow(QMainWindow):
             read.clicked.connect(lambda checked=False, k=key: self.program_read(k))
             write.clicked.connect(lambda checked=False, k=key: self.program_write(k))
 
-        # Current firmware does not expose safe BOOT/RPMB partition switching
-        # or a write-stream protocol. Keep the controls visible like UFI,
-        # but do not claim a write operation that the firmware cannot execute.
-        for key in ("boot1", "boot2"):
-            self.program_rows[key]["read"].setEnabled(False)
-            self.program_rows[key]["write"].setEnabled(False)
-            self.program_rows[key]["read"].setToolTip("Requires BOOT partition protocol in RP2040 firmware")
-            self.program_rows[key]["write"].setToolTip("Requires BOOT partition protocol in RP2040 firmware")
+        # READ in eMMC PROGRAMMING is BACKUP only. BOOT1/BOOT2 are backed up
+        # through the same firmware dump stream, with partition switching.
+        self.program_rows["boot1"]["write"].setEnabled(False)
+        self.program_rows["boot2"]["write"].setEnabled(False)
+        self.program_rows["boot1"]["write"].setToolTip("Write protocol is not implemented.")
+        self.program_rows["boot2"]["write"].setToolTip("Write protocol is not implemented.")
 
-        self.program_rows["extcsd"]["read"].setText("READ")
+        self.program_rows["extcsd"]["read"].setText("BACKUP")
         self.program_rows["extcsd"]["write"].setEnabled(False)
         self.program_rows["extcsd"]["write"].setToolTip("EXT_CSD write protocol is not yet implemented")
 
@@ -414,13 +412,16 @@ class MainWindow(QMainWindow):
 
     def program_read(self, key):
         if key == "extcsd":
-            self.console.clear()
-            self.start_operation(10000, "READ EXT_CSD")
-            try:
-                self.emmc.extcsd()
-            except Exception as e:
-                self.finish_operation(False, "EXT_CSD ERROR")
-                self.console.log(f"EXT_CSD ERROR: {e}")
+            self.console.log("EXT_CSD: use BACKUP in the BOOT / EXT_CSD service view to save the 512-byte image")
+            self.show_service(self.boot)
+            return
+        if key == "boot1":
+            self.show_service(self.boot)
+            self.boot.bootRead(1)
+            return
+        if key == "boot2":
+            self.show_service(self.boot)
+            self.boot.bootRead(2)
             return
         if key == "userarea":
             self.console.clear()
