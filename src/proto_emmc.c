@@ -1629,6 +1629,10 @@ static bool emmc_send_extcsd_special(const char *task) {
              "\"ext_csd_rev\":%u}",
              (unsigned)ext[168], (unsigned)ext[168] * 128u,
              (unsigned long)ext[168] * 128ul * 1024ul, (unsigned)ext[192]);
+  } else if (strcmp(task, "security") == 0) {
+    snprintf(out, sizeof(out),
+             "{\"type\":\"emmc.special.result\",\"ok\":true,\"task\":\"SECURITY TASK\","
+             "\"action\":\"GPT_SCAN\"}");
   } else {
     snprintf(out, sizeof(out),
              "{\"type\":\"emmc.special.result\",\"ok\":false,\"task\":\"%s\","
