@@ -425,10 +425,30 @@ static void process_command(char *cmd) {
     }
 
     if (strcmp(cmd, "GPT") == 0) {
-        /* GPT is owned by the eMMC protocol layer so it always performs a
-           fresh card preparation before reading LBA1/partition entries. */
+        /*
+         * GPT is a synchronous metadata read. Prepare/select the card here,
+         * then let the existing GPT parser read LBA1 + partition entries.
+         * Do not route this through proto_emmc_handle_text(): that command
+         * does not own GPT and previously returned EMMC_UNSUPPORTED only
+         * after the GUI had already waited for the result.
+         */
         signal_monitor_stop();
-        proto_emmc_handle_text("emmc.gpt", "{\"type\":\"emmc.gpt\"}");
+        proto_emmc_stop_all();
+        uint16_t rca = 0u;
+        bool hc = false;
+        char msg[96] = {0};
+        if (!emmc_prepare_card_for_data(&rca, &hc, msg, sizeof(msg))) {
+            char out[192];
+            snprintf(out, sizeof(out),
+                     "{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"%s\"}\n",
+                     msg[0] ? msg : "eMMC data preparation failed");
+            app_send_text(out);
+            return;
+        }
+        g_hc_addressing = hc;
+        if (!send_gpt_result()) {
+            app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"GPT transmission failed\"}\n");
+        }
         return;
     }
 
