@@ -519,7 +519,7 @@ static int send_buildprop_for_candidate(const buildprop_candidate_t *candidate, 
     size_t pos = 0u;
     while (pos < size) {
         size_t chunk = size - pos;
-        if (chunk > 500u) chunk = 500u;
+        if (chunk > 300u) chunk = 300u;
         if (!json_send_buildprop_chunk(data + pos, chunk)) return -1;
         pos += chunk;
     }
