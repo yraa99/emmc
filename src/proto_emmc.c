@@ -1570,7 +1570,9 @@ static bool emmc_set_boot_config(uint8_t boot_partition, uint8_t bus_width,
 
   current_part = (uint8_t)((ext[179] >> 3u) & 0x07u);
   (void)current_part;
-  new_part_cfg = (uint8_t)((ext[179] & 0xC7u) |
+  /* Preserve only reserved/partition-access bits here. Bit 6 is BOOT_ACK
+     * and must be explicitly cleared when the UI requests Disabled. */
+  new_part_cfg = (uint8_t)((ext[179] & 0x87u) |
                            ((boot_partition & 0x07u) << 3u) |
                            (ack ? 0x40u : 0u));
   new_bus_cfg = (uint8_t)((ext[177] & 0xE0u) |
@@ -2085,8 +2087,12 @@ bool proto_emmc_handle_text(const char *type, const char *json) {
   if (!starts_with(type, "emmc.")) return false;
 
   if (strcmp(type, "emmc.gpt") == 0) {
+    bool include_buildprop = true;
     proto_emmc_stop_all();
-    return app_handle_gpt();
+    if (json_extract_bool(json, "include_buildprop", &include_buildprop) == false) {
+      include_buildprop = true;
+    }
+    return app_handle_gpt(include_buildprop);
   }
   if (strcmp(type, "emmc.identify") == 0) {
     proto_emmc_stop_all();
@@ -2101,7 +2107,7 @@ bool proto_emmc_handle_text(const char *type, const char *json) {
       return true;
     }
     (void)emmc_send_extcsd_special(task);
-    if (strcmp(task, "security") == 0) (void)app_handle_gpt();
+    if (strcmp(task, "security") == 0) (void)app_handle_gpt(false);
     return true;
   }
   if (strcmp(type, "emmc.setboot.read") == 0) {
