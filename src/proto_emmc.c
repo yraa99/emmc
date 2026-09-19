@@ -2048,14 +2048,21 @@ static void emmc_identify_once(void) {
 
   {
     bool identify_ok = boot1_ok && boot2_ok && user_ok && ext_ok;
+    const char *fail_stage = identify_ok ? "" :
+        (!boot1_ok ? "BOOT1" : (!boot2_ok ? "BOOT2" : (!user_ok ? "USERAREA" : "EXT_CSD")));
+    const char *fail_msg = identify_ok ? "" :
+        (!boot1_ok ? "BOOT1 LBA0 probe failed" :
+         (!boot2_ok ? "BOOT2 LBA0 probe failed" :
+          (!user_ok ? "USERAREA LBA0 probe failed" : "EXT_CSD read failed")));
     snprintf(out, sizeof(out),
            "{\"type\":\"emmc.identify.result\",\"ok\":%s,"
+           "\"stage\":\"%s\",\"msg\":\"%s\","
            "\"cid\":\"%s\",\"csd\":\"%s\",\"ext_csd\":\"%s\","
            "\"ocr\":%lu,\"rca\":%u,\"capacity_bytes\":%llu,"
            "\"sector_size\":512,\"ext_csd_rev\":%u,\"bus_width_mode\":%u,"
            "\"clock_hz\":200000,\"boot1_read\":%s,\"boot2_read\":%s,"
            "\"extcsd_read\":true,\"userarea_read\":%s}",
-           identify_ok ? "true" : "false",
+           identify_ok ? "true" : "false", fail_stage, fail_msg,
            cid_hex, csd_hex, ext_hex,
            (unsigned long)id.ocr, (unsigned)id.rca,
            (unsigned long long)capacity_bytes,
