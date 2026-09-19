@@ -1,9 +1,14 @@
 from PyQt6.QtWidgets import *
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import Qt
 
 
 class BootExtCSDTab(QWidget):
-    """EXT_CSD viewer. Boot read/write stays disabled until firmware has safe partition switching support."""
+    """Professional boot/EXT_CSD/RPMB workspace.
+
+    Safe READ/WRITE support is exposed only when the firmware provides the
+    corresponding protocol. The current firmware is intentionally read-only
+    for BOOT and RPMB.
+    """
 
     FIELDS = [
         "PARTITION_CONFIG", "BOOT_SIZE_MULT", "RPMB_SIZE_MULT", "BOOT_BUS_WIDTH",
@@ -17,36 +22,61 @@ class BootExtCSDTab(QWidget):
         self.ext_csd = None
         self.setup()
 
+    def _button(self, text):
+        b = QPushButton(text)
+        b.setObjectName("serviceButton")
+        b.setMinimumHeight(32)
+        b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        return b
+
     def setup(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        boot_box = QGroupBox("BOOT PARTITION")
+        boot_box = QGroupBox("BOOT 1 / BOOT 2")
         boot = QGridLayout(boot_box)
         boot.setSpacing(8)
-        self.readBoot1 = QPushButton("READ BOOT1")
-        self.readBoot2 = QPushButton("READ BOOT2")
-        self.writeBoot1 = QPushButton("WRITE BOOT1")
-        self.writeBoot2 = QPushButton("WRITE BOOT2")
+
+        self.readBoot1 = self._button("READ / BACKUP BOOT1")
+        self.readBoot2 = self._button("READ / BACKUP BOOT2")
+        self.writeBoot1 = self._button("WRITE BOOT1")
+        self.writeBoot2 = self._button("WRITE BOOT2")
+
         for b in (self.readBoot1, self.readBoot2, self.writeBoot1, self.writeBoot2):
-            b.setObjectName("serviceButton")
-            b.setMinimumHeight(30)
-            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            b.setEnabled(False)
+            b.setToolTip("Disabled: safe BOOT partition switch/read/write protocol is not active.")
+
         self.readBoot1.clicked.connect(lambda: self.bootRead(1))
         self.readBoot2.clicked.connect(lambda: self.bootRead(2))
         self.writeBoot1.clicked.connect(lambda: self.bootWrite(1))
         self.writeBoot2.clicked.connect(lambda: self.bootWrite(2))
+
         boot.addWidget(self.readBoot1, 0, 0)
         boot.addWidget(self.readBoot2, 0, 1)
         boot.addWidget(self.writeBoot1, 1, 0)
         boot.addWidget(self.writeBoot2, 1, 1)
-        for b in (self.readBoot1, self.readBoot2, self.writeBoot1, self.writeBoot2):
-            b.setEnabled(False)
-            b.setToolTip("Belum diaktifkan: firmware belum memiliki partition-switch + boot transfer yang aman.")
 
-        ext_box = QGroupBox("EXT_CSD INFORMATION")
+        self.boot_file = QLineEdit()
+        self.boot_file.setReadOnly(True)
+        self.boot_file.setPlaceholderText("Backup / write image file")
+        self.boot_select = self._button("SELECT FILE")
+        self.boot_select.clicked.connect(self.select_boot_file)
+        boot.addWidget(self.boot_file, 2, 0)
+        boot.addWidget(self.boot_select, 2, 1)
+
+        rpmb_box = QGroupBox("RPMB")
+        rpmb = QHBoxLayout(rpmb_box)
+        self.readRpmb = self._button("READ / BACKUP RPMB")
+        self.writeRpmb = self._button("WRITE RPMB")
+        for b in (self.readRpmb, self.writeRpmb):
+            b.setEnabled(False)
+            b.setToolTip("Disabled: RPMB requires authenticated protocol support.")
+        rpmb.addWidget(self.readRpmb)
+        rpmb.addWidget(self.writeRpmb)
+
+        ext_box = QGroupBox("EXT_CSD")
         ext = QVBoxLayout(ext_box)
-        ext.setSpacing(8)
         self.extTable = QTableWidget(len(self.FIELDS), 2)
         self.extTable.setHorizontalHeaderLabels(["FIELD", "VALUE"])
         self.extTable.horizontalHeader().setStretchLastSection(True)
@@ -55,33 +85,35 @@ class BootExtCSDTab(QWidget):
         for i, field in enumerate(self.FIELDS):
             self.extTable.setItem(i, 0, QTableWidgetItem(field))
 
-        self.readExt = QPushButton("READ EXT_CSD")
-        self.saveExt = QPushButton("SAVE EXT_CSD")
-        self.writeExt = QPushButton("WRITE EXT_CSD")
-        for b in (self.readExt, self.saveExt, self.writeExt):
-            b.setObjectName("serviceButton")
-            b.setMinimumHeight(30)
-            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        actions = QHBoxLayout()
+        self.readExt = self._button("READ EXT_CSD")
+        self.saveExt = self._button("SAVE EXT_CSD")
+        self.writeExt = self._button("WRITE EXT_CSD")
         self.saveExt.setEnabled(False)
         self.writeExt.setEnabled(False)
-        self.saveExt.setToolTip("Aktif setelah EXT_CSD berhasil dibaca.")
-        self.writeExt.setToolTip("Belum diaktifkan: EXT_CSD write memerlukan CMD6 + safety checks.")
+        self.writeExt.setToolTip("Disabled: EXT_CSD write protocol is not active.")
         self.readExt.clicked.connect(self.readExtCSD)
         self.saveExt.clicked.connect(self.saveExtCSD)
-
-        actions = QHBoxLayout()
-        actions.setSpacing(8)
-        actions.addWidget(self.readExt, 1)
-        actions.addWidget(self.saveExt, 1)
-        actions.addWidget(self.writeExt, 1)
+        actions.addWidget(self.readExt)
+        actions.addWidget(self.saveExt)
+        actions.addWidget(self.writeExt)
         ext.addWidget(self.extTable, 1)
         ext.addLayout(actions)
 
         layout.addWidget(boot_box)
+        layout.addWidget(rpmb_box)
         layout.addWidget(ext_box, 1)
 
+    def select_boot_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select BOOT image", "", "Boot image (*.bin *.img);;All Files (*)"
+        )
+        if path:
+            self.boot_file.setText(path)
+            self.console.log(f"BOOT file selected: {path}")
+
     def readExtCSD(self):
-        self.console.log("READ EXT_CSD REQUEST")
+        self.console.log("Reading EXT_CSD ...")
         self.readExt.setEnabled(False)
         try:
             self.emmc.extcsd()
@@ -96,7 +128,12 @@ class BootExtCSDTab(QWidget):
         if not obj.get("ok", False):
             self.console.log("EXT_CSD ERROR: " + str(obj.get("msg", "unknown error")))
             return
-        self.ext_csd = bytes.fromhex(str(obj.get("ext_csd_hex", ""))) if obj.get("ext_csd_hex") else None
+
+        try:
+            self.ext_csd = bytes.fromhex(str(obj.get("ext_csd_hex", "")))
+        except ValueError:
+            self.ext_csd = None
+
         vals = {
             "PARTITION_CONFIG": obj.get("partition_config", "-"),
             "BOOT_SIZE_MULT": obj.get("boot_size_mult", "-"),
@@ -112,13 +149,16 @@ class BootExtCSDTab(QWidget):
             if isinstance(value, int):
                 value = f"0x{value:02X} ({value})"
             self.extTable.setItem(row, 1, QTableWidgetItem(str(value)))
+
         self.saveExt.setEnabled(bool(self.ext_csd and len(self.ext_csd) == 512))
         self.console.log("EXT_CSD READ OK")
 
     def saveExtCSD(self):
         if not self.ext_csd:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Save EXT_CSD", "ext_csd.bin", "Binary (*.bin);;All Files (*)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save EXT_CSD", "ext_csd.bin", "Binary (*.bin);;All Files (*)"
+        )
         if not path:
             return
         try:
@@ -129,7 +169,7 @@ class BootExtCSDTab(QWidget):
             self.console.log(f"EXT_CSD SAVE ERROR: {e}")
 
     def bootRead(self, part):
-        self.console.log(f"READ BOOT{part} is not enabled yet")
+        self.console.log(f"READ BOOT{part}: disabled until partition-switch/read protocol is implemented")
 
     def bootWrite(self, part):
-        self.console.log(f"WRITE BOOT{part} is not enabled yet")
+        self.console.log(f"WRITE BOOT{part}: disabled until write protocol is implemented")
