@@ -622,6 +622,16 @@ static void r2_extract_payload_128(const uint8_t *r2_136, uint8_t out16[16]) {
 
 static void snapshot_levels(void);
 bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len);
+
+static void emmc_restore_dump_partition(void) {
+  if (g_emmc.dump_partition != 0u && g_emmc.dump_rca != 0u) {
+    char msg[96];
+    (void)emmc_switch_partition(g_emmc.dump_rca, 0u, msg, sizeof(msg));
+  }
+  g_emmc.dump_partition = 0u;
+}
+
+
 static bool emmc_resync_transfer(uint16_t rca, bool hc_addressing);
 
 static bool emmc_try_read_ids(emmc_id_data_t *out) {
@@ -2263,6 +2273,7 @@ void proto_emmc_poll(void) {
         (void)send_dump_status("running", "stall detected; link recovered");
         g_emmc.dump_last_status_ms = now;
       } else {
+        emmc_restore_dump_partition();
         g_emmc.dump_active = false;
         if (g_emmc.tristate_default) emmc_apply_safe_io();
         (void)send_dump_status("error", rec_msg[0] ? rec_msg : "stall detected; recovery failed");
@@ -2320,6 +2331,7 @@ void proto_emmc_poll(void) {
             }
             return;
           }
+          emmc_restore_dump_partition();
           g_emmc.dump_active = false;
           if (g_emmc.tristate_default) emmc_apply_safe_io();
           (void)send_dump_status("error", dump_msg);
@@ -2361,6 +2373,7 @@ void proto_emmc_poll(void) {
             g_emmc.dump_last_status_ms = now;
           }
           if (g_emmc.dump_tx_fail_streak > EMMC_DUMP_TX_FAIL_LIMIT) {
+            emmc_restore_dump_partition();
             g_emmc.dump_active = false;
             if (g_emmc.tristate_default) emmc_apply_safe_io();
             (void)send_dump_status("error", "stream stalled (tx busy)");
