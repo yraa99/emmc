@@ -26,6 +26,7 @@ class BootExtCSDTab(QWidget):
         self.boot_expected = 0
         self.boot_received = 0
         self.boot_partition = 0
+        self.pending_ext_backup = None
         self.setup()
 
     def _button(self, text):
@@ -160,7 +161,26 @@ class BootExtCSDTab(QWidget):
             self.extTable.setItem(row, 1, QTableWidgetItem(str(value)))
 
         self.saveExt.setEnabled(bool(self.ext_csd and len(self.ext_csd) == 512))
+        if self.pending_ext_backup and self.ext_csd and len(self.ext_csd) == 512:
+            path = self.pending_ext_backup
+            self.pending_ext_backup = None
+            try:
+                with open(path, "wb") as f:
+                    f.write(self.ext_csd)
+                self.console.log(f"EXT_CSD BACKUP COMPLETE: {path}")
+            except OSError as e:
+                self.console.log(f"EXT_CSD BACKUP ERROR: {e}")
         self.console.log("EXT_CSD READ OK")
+
+    def backupExtCSD(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save EXT_CSD backup", "ext_csd.bin",
+            "Binary (*.bin);;All Files (*)"
+        )
+        if not path:
+            return
+        self.pending_ext_backup = path
+        self.readExtCSD()
 
     def saveExtCSD(self):
         if not self.ext_csd:
