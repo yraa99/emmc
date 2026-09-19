@@ -14,8 +14,8 @@ class EMMC:
     def version(self):
         self.protocol.version()
 
-    def gpt(self):
-        self.protocol.gpt()
+    def gpt(self, include_buildprop=True):
+        self.protocol.gpt(include_buildprop)
 
     def isp_cmd_test(self, cycles=6):
         self.protocol.isp_cmd_test(cycles)
