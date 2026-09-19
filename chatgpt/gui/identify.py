@@ -9,6 +9,12 @@ class IdentifyTab(QWidget):
         self.console = console
         self.busy = False
         self.buildprop_lines = []
+        self.identity_parts = []
+        self.identity_index = 0
+        self.identity_active = False
+        self.identity_buffer = bytearray()
+        self.identity_current = None
+        self.identity_found = {"imei": "", "sn": "", "mac": ""}
         self.timeout = QTimer(self)
         self.timeout.setSingleShot(True)
         self.timeout.timeout.connect(self.on_timeout)
@@ -74,6 +80,16 @@ class IdentifyTab(QWidget):
 
     def handle_serial_data(self, obj):
         typ = obj.get("type")
+        if typ == "emmc.gpt.partition" and self.busy:
+            name = str(obj.get("name", "")).strip()
+            lower = name.lower()
+            tokens = ("nvram", "nvdata", "nvitem", "nvcfg", "imei", "modemst", "modem_nv", "efs", "fsg", "fsc", "persist", "proinfo", "oeminfo", "secure", "seccfg", "factory", "devinfo")
+            if any(token in lower for token in tokens):
+                start = int(obj.get("start_lba", 0))
+                sectors = int(obj.get("sectors", 0))
+                if start >= 0 and sectors > 0:
+                    self.identity_parts.append({"name": name, "start": start, "sectors": sectors})
+            return
         if typ == "emmc.identify.area":
             area = str(obj.get("area", ""))
             state = str(obj.get("state", ""))
@@ -116,6 +132,9 @@ class IdentifyTab(QWidget):
                 self.set_value("BUILD.PROP", "FAILED")
                 self.console.log("BUILD.PROP : FAILED - " + str(obj.get("msg", "unknown error")))
             return
+        if typ == "emmc.dump.status":
+            self._handle_identity_dump_status(str(obj.get("state", "")))
+            return
         if typ != "emmc.identify.result":
             return
         if not obj.get("ok", False):
@@ -123,6 +142,7 @@ class IdentifyTab(QWidget):
             self.set_value("Status", "ERROR")
             self.finish()
             return
+        self._start_identity_scan()
         cid = str(obj.get("cid", ""))
         csd = str(obj.get("csd", ""))
         ext = str(obj.get("ext_csd", ""))
@@ -202,6 +222,114 @@ class IdentifyTab(QWidget):
                 self.console.log(f"{label}: {value}")
         self.console.log("IMEI / device SN / Wi-Fi MAC: read from identity/security sources, not full build.prop")
 
+    def _start_identity_scan(self):
+        if self.identity_active or not self.identity_parts:
+            return
+        self.identity_index = 0
+        self.identity_active = True
+        self.identity_found = {"imei": "", "sn": "", "mac": ""}
+        self.console.log("IDENTITY: scanning security/NV partitions (max 512 KiB each)")
+        self._start_next_identity_partition()
+
+    def _start_next_identity_partition(self):
+        if not self.identity_active:
+            return
+        if self.identity_index >= min(len(self.identity_parts), 8):
+            self.identity_active = False
+            for field, key in (("Device SN", "sn"), ("IMEI", "imei"), ("Wi-Fi MAC", "mac")):
+                value = self.identity_found[key] or "NOT FOUND"
+                self.set_value(field, value)
+                self.console.log(f"{field}: {value}")
+            return
+        p = self.identity_parts[self.identity_index]
+        self.identity_current = p
+        self.identity_buffer = bytearray()
+        count = min(int(p["sectors"]), 1024)
+        if count <= 0:
+            self.identity_index += 1
+            self._start_next_identity_partition()
+            return
+        try:
+            self.emmc.dump_start(p["start"], count, 512, True, 3, 0)
+        except Exception as e:
+            self.console.log(f"IDENTITY SCAN ERROR ({p['name']}): {e}")
+            self.identity_index += 1
+            self._start_next_identity_partition()
+
+    @staticmethod
+    def _find_identity_values(data):
+        raw = bytes(data)
+        imei = ""
+        sn = ""
+        mac = ""
+        run = bytearray()
+        for b in raw:
+            if 48 <= b <= 57:
+                run.append(b)
+                if len(run) == 15 and not imei:
+                    imei = run.decode("ascii")
+                    run.clear()
+                    continue
+            else:
+                run.clear()
+        text = raw.decode("ascii", errors="ignore")
+        for key in ("serial", "serial_number", "device_sn", "device sn", "sn"):
+            pos = text.lower().find(key)
+            if pos >= 0:
+                tail = text[pos + len(key):pos + len(key) + 96].lstrip(" :=\\x00;\\t\\r\\n")
+                value = ""
+                for ch in tail:
+                    if ch.isalnum() or ch in "._-":
+                        value += ch
+                    else:
+                        if value:
+                            break
+                if len(value) >= 6:
+                    sn = value
+                    break
+        hexchars = "0123456789abcdefABCDEF:"
+        for i in range(max(0, len(text) - 17)):
+            candidate = text[i:i + 17]
+            if len(candidate) == 17 and candidate[2] == candidate[5] == candidate[8] == candidate[11] == candidate[14] == ":" and all(ch in hexchars for ch in candidate):
+                mac = candidate.upper()
+                break
+        return imei, sn, mac
+
+    def handle_binary_data(self, frame):
+        if not self.identity_active or len(frame) < 8 or frame[0] != 0xB0:
+            return
+        ch = frame[1]
+        offset = int.from_bytes(frame[2:6], "little")
+        count = int.from_bytes(frame[6:8], "little")
+        if ch == 0x04:
+            payload = frame[8:8 + count]
+        elif ch == 0x05 and len(frame) >= 9:
+            payload = bytes([frame[8]]) * count
+        else:
+            return
+        if len(payload) != count:
+            return
+        end = offset + count
+        if end > len(self.identity_buffer):
+            self.identity_buffer.extend(b"\\x00" * (end - len(self.identity_buffer)))
+        self.identity_buffer[offset:end] = payload
+
+    def _handle_identity_dump_status(self, state):
+        if not self.identity_active or state != "complete":
+            return
+        imei, sn, mac = self._find_identity_values(self.identity_buffer)
+        if imei and not self.identity_found["imei"]:
+            self.identity_found["imei"] = imei
+        if sn and not self.identity_found["sn"]:
+            self.identity_found["sn"] = sn
+        if mac and not self.identity_found["mac"]:
+            self.identity_found["mac"] = mac
+        self.console.log(f"IDENTITY SCAN: {self.identity_current['name']} complete")
+        if all(self.identity_found.values()):
+            self.identity_index = len(self.identity_parts)
+        else:
+            self.identity_index += 1
+        self._start_next_identity_partition()
     def set_value(self, field, value):
         for r in range(self.table.rowCount()):
             if self.table.item(r, 0) and self.table.item(r, 0).text() == field:
