@@ -127,7 +127,7 @@ class BootExtCSDTab(QWidget):
             self.console.log(f"EXT_CSD ERROR: {e}")
             self.readExt.setEnabled(True)
 
-    def handle_serial_data(self, obj):
+    def handle_layout_data(self, obj):
         if obj.get("type") != "emmc.layout.result":
             return
         self.readExt.setEnabled(True)
@@ -235,8 +235,7 @@ class BootExtCSDTab(QWidget):
             if state in ("error", "stopped"):
                 self._finish_boot(False)
                 return
-        if obj.get("type") != "emmc.layout.result":
-            return
+        self.handle_layout_data(obj)
 
     def _finish_boot(self, success):
         path = getattr(self.boot_file_handle, "name", None) if self.boot_file_handle else None
