@@ -207,50 +207,136 @@ class MainWindow(QMainWindow):
         work.setChildrenCollapsible(False)
         work.setHandleWidth(4)
 
-        # Left side: LOG. The splitter remains manually resizable.
+        # LEFT: compact result log, manually resizable against the work area.
         log_box = QGroupBox("LOG")
         log_layout = QVBoxLayout(log_box)
         log_layout.setContentsMargins(3, 3, 3, 3)
         log_layout.addWidget(self.console)
 
-        # Right side: command rail + partition map.
+        # RIGHT: programming workspace from the reference photo.
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(3, 3, 3, 3)
         right_layout.setSpacing(4)
 
-        command_row = QHBoxLayout()
-        command_row.setContentsMargins(0, 0, 0, 0)
-        command_row.setSpacing(4)
+        identify_bar = QHBoxLayout()
+        identify_bar.setSpacing(4)
+        self.btn_main_identify = self._button("IDENTIFY", 110)
+        self.btn_main_identify.clicked.connect(self.main_identify)
+        identify_bar.addWidget(self.btn_main_identify)
+        identify_bar.addWidget(QLabel("eMMC Programming / Dump File"))
+        identify_bar.addStretch(1)
+        right_layout.addLayout(identify_bar)
 
-        command_box = QVBoxLayout()
-        command_box.setSpacing(3)
+        # These are TASK rows, not navigation buttons. Files can be selected
+        # exactly as a service programmer workflow: Boot1/2, EXT_CSD, Userarea.
+        program_box = QGroupBox("eMMC PROGRAMMING")
+        grid = QGridLayout(program_box)
+        grid.setContentsMargins(5, 5, 5, 5)
+        grid.setHorizontalSpacing(4)
+        grid.setVerticalSpacing(4)
+        headers = ["TASK", "DUMP / IMAGE FILE", "SELECT", "READ", "WRITE"]
+        for col, title in enumerate(headers):
+            lab = QLabel(title)
+            lab.setObjectName("tableHeader")
+            grid.addWidget(lab, 0, col)
 
-        self.btn_boot1 = self._button("Boot 1")
-        self.btn_boot2 = self._button("Boot 2")
-        self.btn_extcsd = self._button("ExtCSD")
-        self.btn_userarea = self._button("Userarea")
+        self.program_rows = {}
+        specs = [
+            ("BOOT 1", "boot1", "*.bin *.img"),
+            ("BOOT 2", "boot2", "*.bin *.img"),
+            ("EXT_CSD", "extcsd", "*.bin"),
+            ("USERAREA", "userarea", "*.bin *.img"),
+        ]
+        for row, (label, key, filt) in enumerate(specs, start=1):
+            grid.addWidget(QLabel(label), row, 0)
+            edit = QLineEdit()
+            edit.setReadOnly(True)
+            edit.setPlaceholderText("Select dump / image")
+            select = QPushButton("...")
+            select.setFixedWidth(34)
+            read = QPushButton("READ")
+            write = QPushButton("WRITE")
+            self.program_rows[key] = {
+                "edit": edit, "select": select, "read": read, "write": write,
+                "filter": filt,
+            }
+            grid.addWidget(edit, row, 1)
+            grid.addWidget(select, row, 2)
+            grid.addWidget(read, row, 3)
+            grid.addWidget(write, row, 4)
+            select.clicked.connect(lambda checked=False, k=key: self.select_program_file(k))
+            read.clicked.connect(lambda checked=False, k=key: self.program_read(k))
+            write.clicked.connect(lambda checked=False, k=key: self.program_write(k))
 
-        for button in (
-            self.btn_boot1,
-            self.btn_boot2,
-            self.btn_extcsd,
-            self.btn_userarea,
-        ):
-            command_box.addWidget(button)
+        # Current firmware does not expose safe BOOT/RPMB partition switching
+        # or a write-stream protocol. Keep the controls visible like UFI,
+        # but do not claim a write operation that the firmware cannot execute.
+        for key in ("boot1", "boot2"):
+            self.program_rows[key]["read"].setEnabled(False)
+            self.program_rows[key]["write"].setEnabled(False)
+            self.program_rows[key]["read"].setToolTip("Requires BOOT partition protocol in RP2040 firmware")
+            self.program_rows[key]["write"].setToolTip("Requires BOOT partition protocol in RP2040 firmware")
 
-        command_box.addStretch(1)
-        command_panel = QWidget()
-        command_panel.setLayout(command_box)
-        command_panel.setFixedWidth(112)
+        self.program_rows["extcsd"]["read"].setText("READ")
+        self.program_rows["extcsd"]["write"].setEnabled(False)
+        self.program_rows["extcsd"]["write"].setToolTip("EXT_CSD write protocol is not yet implemented")
 
-        command_row.addWidget(command_panel)
-        command_row.addStretch(1)
-        right_layout.addLayout(command_row)
+        self.program_rows["userarea"]["write"].setEnabled(False)
+        self.program_rows["userarea"]["write"].setToolTip("eMMC write-stream protocol is not yet implemented")
 
-        # UserArea's real table is used directly here, so the main sketch
-        # shows the same live partition data that the UserArea service page
-        # uses. Its own title/action bar is hidden only in this main view.
+        right_layout.addWidget(program_box)
+
+        # SETBOOT sits immediately above the User Area partition table.
+        setboot = QGroupBox("SET BOOT")
+        sb = QGridLayout(setboot)
+        sb.setContentsMargins(5, 5, 5, 5)
+        sb.setHorizontalSpacing(4)
+        sb.setVerticalSpacing(4)
+
+        sb.addWidget(QLabel("Chipset / SoC"), 0, 0)
+        self.setboot_chipset = QComboBox()
+        self.setboot_chipset.addItems([
+            "Generic eMMC",
+            "Qualcomm",
+            "MediaTek",
+            "Unisoc / Spreadtrum",
+            "Samsung / Exynos",
+            "Huawei / HiSilicon",
+        ])
+        sb.addWidget(self.setboot_chipset, 0, 1)
+
+        sb.addWidget(QLabel("Boot source"), 0, 2)
+        self.setboot_source = QComboBox()
+        self.setboot_source.addItems(["Disabled", "BOOT1", "BOOT2", "User Area"])
+        sb.addWidget(self.setboot_source, 0, 3)
+
+        sb.addWidget(QLabel("Boot bus"), 1, 0)
+        self.setboot_bus = QComboBox()
+        self.setboot_bus.addItems(["x1", "x4", "x8"])
+        self.setboot_bus.setCurrentText("x8")
+        sb.addWidget(self.setboot_bus, 1, 1)
+
+        sb.addWidget(QLabel("Reset boot bus"), 1, 2)
+        self.setboot_reset = QComboBox()
+        self.setboot_reset.addItems(["x1", "retain"])
+        self.setboot_reset.setCurrentText("retain")
+        sb.addWidget(self.setboot_reset, 1, 3)
+
+        self.btn_setboot_read = QPushButton("READ SETBOOT")
+        self.btn_setboot_write = QPushButton("WRITE SETBOOT")
+        self.btn_setboot_write.setEnabled(False)
+        self.btn_setboot_write.setToolTip("Requires validated EXT_CSD CMD6 write support in RP2040 firmware")
+        sb.addWidget(self.btn_setboot_read, 2, 0, 1, 2)
+        sb.addWidget(self.btn_setboot_write, 2, 2, 1, 2)
+
+        self.btn_setboot_read.clicked.connect(self.read_setboot)
+        self.btn_setboot_write.clicked.connect(self.write_setboot)
+        self.setboot_chipset.currentIndexChanged.connect(self.apply_setboot_profile)
+
+        right_layout.addWidget(setboot)
+
+        # Live User Area partition table is embedded here, not opened as a tab.
         self.userarea = UserAreaTab(self.emmc, self.console)
         self.userarea.hide_main_chrome()
         right_layout.addWidget(self.userarea, 1)
@@ -263,26 +349,83 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(work, 1)
 
-        # Service pages are kept alive for the secondary service windows.
-        # UserArea itself remains embedded in MAIN so its live partition table
-        # is always visible exactly where it is drawn in the reference.
+        # Service objects remain available to the existing event dispatcher,
+        # but MAIN controls above perform tasks directly.
         self.identify = IdentifyTab(self.emmc, self.console)
         self.boot = BootExtCSDTab(self.emmc, self.console)
         self.health = HealthTab(self.emmc, self.console)
         self.special = SpecialTaskTab(self.emmc, self.console)
         self.isp = ISPTestTab(self.emmc, self.console)
-
         self.main_home = page
 
-        self.btn_boot1.clicked.connect(lambda: self.show_service(self.boot))
-        self.btn_boot2.clicked.connect(lambda: self.show_service(self.boot))
-        self.btn_extcsd.clicked.connect(lambda: self.show_service(self.boot))
-        self.btn_userarea.clicked.connect(self.userarea.show_service_controls)
+        self.btn_userarea = self.program_rows["userarea"]["read"]
+        self.btn_boot1 = self.program_rows["boot1"]["read"]
+        self.btn_boot2 = self.program_rows["boot2"]["read"]
+        self.btn_extcsd = self.program_rows["extcsd"]["read"]
+
         self.userarea.scan.clicked.connect(lambda: self.start_operation(120000, "READ GPT"))
         self.userarea.read.clicked.connect(lambda: self.start_operation(3600000, "READ / BACKUP"))
         self.userarea.stop.clicked.connect(self.cancel_operation)
 
         return page
+
+    def select_program_file(self, key):
+        row = self.program_rows[key]
+        path, _ = QFileDialog.getOpenFileName(
+            self, f"Select {key.upper()} file", "", f"Images ({row['filter']});;All Files (*)"
+        )
+        if path:
+            row["edit"].setText(path)
+
+    def program_read(self, key):
+        if key == "extcsd":
+            self.console.clear()
+            self.start_operation(10000, "READ EXT_CSD")
+            try:
+                self.emmc.extcsd()
+            except Exception as e:
+                self.finish_operation(False, "EXT_CSD ERROR")
+                self.console.log(f"EXT_CSD ERROR: {e}")
+            return
+        if key == "userarea":
+            self.console.clear()
+            self.userarea.show_service_controls()
+            self.console.log("USERAREA: select a partition in the table, then READ / BACKUP")
+            self.userarea.table.setFocus()
+            return
+        self.console.log(f"{key.upper()}: BOOT partition protocol is not available in current RP2040 firmware")
+
+    def program_write(self, key):
+        self.console.log(f"{key.upper()} WRITE: RP2040 write protocol is not implemented; no data was sent")
+
+    def apply_setboot_profile(self, index):
+        # Profiles are workflow presets, not claims about every device.
+        profiles = {
+            0: ("Disabled", "x8", "retain"),
+            1: ("BOOT1", "x8", "retain"),
+            2: ("BOOT1", "x8", "retain"),
+            3: ("BOOT1", "x8", "retain"),
+            4: ("BOOT1", "x8", "retain"),
+            5: ("BOOT1", "x8", "retain"),
+        }
+        source, bus, reset = profiles.get(index, profiles[0])
+        self.setboot_source.setCurrentText(source)
+        self.setboot_bus.setCurrentText(bus)
+        self.setboot_reset.setCurrentText(reset)
+
+    def read_setboot(self):
+        self.console.clear()
+        self.start_operation(10000, "READ SETBOOT")
+        try:
+            self.emmc.extcsd()
+        except Exception as e:
+            self.finish_operation(False, "SETBOOT ERROR")
+            self.console.log(f"SETBOOT READ ERROR: {e}")
+
+    def write_setboot(self):
+        self.console.log(
+            "SETBOOT WRITE: not sent. RP2040 firmware has no validated EXT_CSD CMD6 write protocol."
+        )
 
     def _build_flash_page(self):
         page = QWidget()
