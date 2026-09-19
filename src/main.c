@@ -737,7 +737,7 @@ static bool lp_parse_metadata_copy(const buildprop_candidate_t *super_candidate,
 
     if (part_count == 0u || part_count > 256u ||
         ext_count == 0u || ext_count > 4096u ||
-        group_count > 256u || dev_count == 0u || dev_count > 16u ||
+        group_count > 256u || dev_count != 1u ||
         part_size < 52u || part_size > 256u ||
         ext_size < 24u || ext_size > 128u ||
         (group_count && (group_size < 44u || group_size > 128u)) ||
@@ -771,7 +771,7 @@ static bool lp_parse_metadata_copy(const buildprop_candidate_t *super_candidate,
         }
 
         uint32_t attrs = ext4_le32(&part[36]);
-        if (attrs & ~0x0Fu) continue; /* unknown LP attributes: ignore safely */
+        if (attrs & ~0x0Fu) return false; /* reject unknown LP attributes */
         if (attrs & 0x08u) continue;  /* disabled */
 
         uint32_t first_extent = ext4_le32(&part[40]);
