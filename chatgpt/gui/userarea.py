@@ -374,7 +374,6 @@ class UserAreaTab(QWidget):
             return
         self.gpt_busy = False
         self.buildprop_busy = False
-        self.scan.setEnabled(True)
         self.read.setEnabled(bool(self.partitions))
         self.status.setText("Partition scan timeout")
         self.console.log("PARTITION SCAN TIMEOUT (120s)")
@@ -447,7 +446,6 @@ class UserAreaTab(QWidget):
             self.dump_total = p["sectors"]
             self.reading = True
             self.read.setEnabled(False)
-            self.scan.setEnabled(False)
             self.stop.setEnabled(True)
             try:
                 self.emmc.dump_start(p["start"], p["sectors"], 512, True, 3, 0)
@@ -480,7 +478,6 @@ class UserAreaTab(QWidget):
             self.dump_total = p["sectors"]
             self.reading = True
             self.read.setEnabled(False)
-            self.scan.setEnabled(False)
             self.stop.setEnabled(True)
             try:
                 self.emmc.dump_start(0, p["sectors"], 512, True, 3, partition)
@@ -523,7 +520,6 @@ class UserAreaTab(QWidget):
         self.dump_total = p["sectors"]
         self.reading = True
         self.read.setEnabled(False)
-        self.scan.setEnabled(False)
         self.stop.setEnabled(True)
         try:
             start_lba, sector_count = self.dump_segments[0]
@@ -557,7 +553,6 @@ class UserAreaTab(QWidget):
         self.dump_segment_index = 0
         self.dump_file_base = 0
         self.stop.setEnabled(False)
-        self.scan.setEnabled(True)
         self.read.setEnabled(bool(self.partitions))
         if success and self.dump_received >= self.dump_expected:
             self._last_read_path = path
