@@ -138,7 +138,6 @@ class IdentifyTab(QWidget):
             }
 
     @staticmethod
-    @staticmethod
     def format_capacity(value):
         if value >= 1024**4:
             return f"{value / 1024**4:.2f} TB"
