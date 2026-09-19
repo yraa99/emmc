@@ -645,7 +645,7 @@ class MainWindow(QMainWindow):
             if button in (
                 self.btn_cancel,
                 self.theme_button,
-                self.special_execute,
+                getattr(self, "special_execute", None),
             ):
                 continue
             button.pressed.connect(self._clear_log_for_new_command)
