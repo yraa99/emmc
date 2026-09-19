@@ -384,7 +384,6 @@ class UserAreaTab(QWidget):
         self.read.setEnabled(False)
         self.scan.setEnabled(False)
         self.stop.setEnabled(True)
-        self.console.log(f"Reading {p['name']} ...")
         try:
             self.emmc.dump_start(p["start"], p["sectors"], 512, True, 3)
         except Exception as e:
