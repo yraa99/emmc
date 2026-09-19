@@ -284,7 +284,7 @@ class UserAreaTab(QWidget):
                 int(obj.get("start_lba", 0)),
                 int(obj.get("sectors", 0)),
                 "LOGICAL",
-                "READY",
+                self.classify(str(obj.get("name", ""))),
                 True,
             )
             try:
