@@ -269,6 +269,7 @@ class UserAreaTab(QWidget):
             return
 
         if typ == "emmc.gpt.begin":
+            self.gpt_count = 0
             self.partitions.clear()
             self.table.setRowCount(0)
             self.status.setText("Reading GPT...")
