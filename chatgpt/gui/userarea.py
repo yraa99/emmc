@@ -343,7 +343,6 @@ class UserAreaTab(QWidget):
             if not obj.get("ok", False):
                 self.gpt_busy = False
                 self.buildprop_busy = False
-                self.scan.setEnabled(True)
                 self.read.setEnabled(False)
                 self.status.setText("GPT failed")
                 self.console.log("GPT ERROR: " + str(obj.get("msg", "unknown error")))
