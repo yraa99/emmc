@@ -184,13 +184,12 @@ class MainWindow(QMainWindow):
         self.btn_main_boot1 = self._button("BOOT 1")
         self.btn_main_boot2 = self._button("BOOT 2")
         self.btn_main_ext = self._button("EXT_CSD")
-        self.btn_main_health = self._button("HEALTH CHECK")
         self.btn_main_special = self._button("SPECIAL TASK")
 
         buttons = [
             self.btn_main_identify, self.btn_main_boot1, self.btn_main_boot2,
             self.btn_main_ext, self.btn_main_user, self.btn_main_gpt,
-            self.btn_main_health, self.btn_main_special
+            self.btn_main_special
         ]
         for idx, button in enumerate(buttons):
             grid.addWidget(button, idx // 4, idx % 4)
@@ -201,7 +200,6 @@ class MainWindow(QMainWindow):
         self.btn_main_boot1.clicked.connect(lambda: self.service_tabs.setCurrentWidget(self.boot))
         self.btn_main_boot2.clicked.connect(lambda: self.service_tabs.setCurrentWidget(self.boot))
         self.btn_main_ext.clicked.connect(lambda: self.service_tabs.setCurrentWidget(self.boot))
-        self.btn_main_health.clicked.connect(lambda: self.service_tabs.setCurrentWidget(self.identify))
         self.btn_main_special.clicked.connect(lambda: self.service_tabs.setCurrentWidget(self.special))
 
         right_layout.addWidget(quick)
