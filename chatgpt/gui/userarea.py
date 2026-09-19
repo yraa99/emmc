@@ -149,6 +149,9 @@ class UserAreaTab(QWidget):
         self.table.setRowCount(0)
         self.status.setText("Reading GPT and Android system information...")
         try:
+            # Load hardware-area sizes first so BOOT1/BOOT2 rows are always
+            # present before GPT partitions are appended.
+            self.emmc.layout()
             self.emmc.gpt()
             self.gpt_timeout.start(120000)
         except Exception as e:
