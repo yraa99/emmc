@@ -230,7 +230,8 @@ static void gpt_utf16_name(const uint8_t *src, char *dst, size_t dst_len) {
     for (size_t i = 0; i < 36 && o + 1 < dst_len; ++i) {
         uint16_t c = (uint16_t)src[i * 2] | ((uint16_t)src[i * 2 + 1] << 8);
         if (c == 0) break;
-        if (c >= 0x20 && c <= 0x7e) dst[o++] = (char)c;
+        if (c == '"' || c == '\\') dst[o++] = '_';
+        else if (c >= 0x20 && c <= 0x7e) dst[o++] = (char)c;
         else dst[o++] = '_';
     }
     dst[o] = '\0';
