@@ -125,6 +125,12 @@ class App:
                     break
 
                 if isinstance(data, (bytes, bytearray)):
+                    main_binary = getattr(window, "handle_binary_data", None)
+                    if main_binary:
+                        try:
+                            main_binary(bytes(data))
+                        except Exception as e:
+                            window.console.log(f"UI MAIN BINARY ERROR: {e}")
                     for tab in (window.userarea, window.boot, window.health):
                         handler = getattr(tab, "handle_binary_data", None)
                         if handler:
