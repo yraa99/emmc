@@ -1752,10 +1752,7 @@ static void emmc_identify_once(void) {
   if (g_emmc.tristate_default) emmc_apply_safe_io();
 }
 
-void proto_emmc_on_client_open(ws_conn_t *conn) { (void)conn; }
-
-void proto_emmc_on_client_close(ws_conn_t *conn) {
-  (void)conn;
+void proto_emmc_on_client_close(void) {
   g_emmc.detect_enabled = false;
   g_emmc.idpoll_enabled = false;
   g_emmc.dump_active = false;
