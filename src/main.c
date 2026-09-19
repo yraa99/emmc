@@ -333,6 +333,14 @@ static void buildprop_add_logical_candidate(const char *name,
     }
     c->start_lba = (uint32_t)(g_super_start_lba + extents[0].start_sector);
     c->sectors = (uint32_t)total;
+    {
+        char out[256];
+        snprintf(out, sizeof(out),
+                 "{\"type\":\"emmc.lp.partition\",\"name\":\"%s\",\"start_lba\":%lu,\"sectors\":%lu,\"extents\":%lu}\n",
+                 c->name, (unsigned long)c->start_lba, (unsigned long)c->sectors,
+                 (unsigned long)c->extent_count);
+        app_send_text(out);
+    }
 }
 
 static bool buildprop_read_candidate_sectors(const buildprop_candidate_t *candidate,
@@ -643,6 +651,8 @@ static bool scan_dynamic_super_candidates(const buildprop_candidate_t *super_can
     uint32_t before = g_buildprop_candidate_count;
     bool parsed = false;
     if (!super_candidate) return false;
+
+    app_send_text("{\"type\":\"emmc.lp.begin\",\"ok\":true}\n");
 
     /* Slot 0 and slot 1 are both inspected. liblp uses slot-specific metadata
        and applies _a/_b to partitions carrying LP_PARTITION_ATTR_SLOT_SUFFIXED. */
