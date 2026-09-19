@@ -235,6 +235,7 @@ static bool send_gpt_result(void) {
     uint64_t entries_lba = gpt_le64(&hdr[72]);
     uint32_t entry_count = gpt_le32(&hdr[80]);
     uint32_t entry_size = gpt_le32(&hdr[84]);
+    uint32_t valid_partitions = 0u;
     if (header_size < 92u || header_size > 512u || entry_size < 128u || entry_size > 512u || entry_count == 0u) {
         return app_send_text("{\"type\":\"emmc.gpt.result\",\"ok\":false,\"msg\":\"Invalid GPT header\"}\n");
     }
@@ -288,8 +289,12 @@ static bool send_gpt_result(void) {
                    (unsigned long)i, name, (unsigned long long)first, (unsigned long long)last,
                    (unsigned long long)(last - first + 1ull));
         if (!app_send_text(out)) return false;
+        valid_partitions++;
     }
-    return app_send_text("{\"type\":\"emmc.gpt.end\",\"ok\":true}\n");
+    snprintf(out, sizeof(out),
+             "{\"type\":\"emmc.gpt.end\",\"ok\":true,\"partitions\":%lu,\"entries_lba\":%llu}\n",
+             (unsigned long)valid_partitions, (unsigned long long)entries_lba);
+    return app_send_text(out);
 }
 
 static void process_command(char *cmd) {
