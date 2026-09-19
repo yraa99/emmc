@@ -362,7 +362,7 @@ class UserAreaTab(QWidget):
                     self.dump_file_base += self.dump_segments[self.dump_segment_index - 1][1] * 512
                     try:
                         start_lba, sector_count = self.dump_segments[self.dump_segment_index]
-                        self.console.log(f"BACKUP SELECTED: {p["name"]} LBA={p["start"]} sectors={p["sectors"]} bytes={p["sectors"] * 512}")\n            self.emmc.dump_start(start_lba, sector_count, 512, True, 3)
+                        self.emmc.dump_start(start_lba, sector_count, 512, True, 3)
                     except Exception as e:
                         self.console.log(f"BACKUP NEXT EXTENT ERROR: {e}")
                         self.finish_read(False)
