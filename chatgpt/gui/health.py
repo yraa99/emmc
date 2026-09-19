@@ -72,4 +72,3 @@ class HealthTab(QWidget):
         values = [self.life_text(a), self.life_text(b), self.pre_eol_text(pre), f"0x{rpmb:02X} ({rpmb * 128} KiB nominal multiplier)", "NORMAL" if pre == 1 else "WARNING" if pre == 2 else "URGENT" if pre == 3 else "UNKNOWN"]
         for r, value in enumerate(values):
             self.table.setItem(r, 1, QTableWidgetItem(value))
-        self.console.log("eMMC HEALTH READ OK")
