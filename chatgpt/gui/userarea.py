@@ -1,9 +1,16 @@
-from PyQt6.QtWidgets import *
-from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
+    QPushButton, QAbstractItemView, QFileDialog, QMenu, QSizePolicy, QHeaderView
+)
+from PyQt6.QtCore import QTimer, Qt
 
 
 class UserAreaTab(QWidget):
-    """Real GPT view plus real streamed READ through the firmware dump protocol."""
+    """GPT/user-area browser with read/backup context actions.
+
+    The active firmware exposes safe READ streaming only. WRITE remains
+    intentionally disabled until a real write protocol is available.
+    """
 
     BIN_MAGIC = 0xB0
     CH_DUMP_DATA = 0x04
@@ -26,51 +33,55 @@ class UserAreaTab(QWidget):
         self.dump_start_lba = 0
         self.dump_total = 0
         self.reading = False
+        self._last_read_path = None
+        self._buildprop_data = []
         self.setup()
 
     def setup(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
-        layout.addWidget(QLabel("USER AREA PARTITION MANAGER"))
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Partition", "Start LBA", "Sectors", "Size", "Status"])
+
+        title = QLabel("USER AREA")
+        title.setObjectName("section_title")
+        layout.addWidget(title)
+
+        self.status = QLabel("Identify + Read GPT to load the partition map")
+        layout.addWidget(self.status)
+
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            ["PARTITION", "START LBA", "SECTORS", "SIZE", "TYPE", "STATUS"]
+        )
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.context_menu)
+        self.table.doubleClicked.connect(lambda _: self.readPartition())
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table, 1)
 
-        prop_box = QGroupBox("BUILD.PROP")
-        prop_layout = QVBoxLayout(prop_box)
-        self.buildprop_status = QLabel("Not scanned")
-        self.buildprop_text = QPlainTextEdit()
-        self.buildprop_text.setReadOnly(True)
-        self.buildprop_text.setPlaceholderText("build.prop will be extracted automatically by SCAN GPT when an EXT4 Android partition is found.")
-        self.buildprop_text.setMinimumHeight(140)
-        prop_layout.addWidget(self.buildprop_status)
-        prop_layout.addWidget(self.buildprop_text)
-        layout.addWidget(prop_box)
-
-        btn = QHBoxLayout()
-        btn.setSpacing(8)
-        self.scan = QPushButton("SCAN GPT")
-        self.read = QPushButton("READ")
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        self.scan = QPushButton("READ GPT")
+        self.read = QPushButton("READ / BACKUP")
         self.write = QPushButton("WRITE")
-        self.verify = QPushButton("VERIFY")
         self.stop = QPushButton("STOP")
-        self.write.setEnabled(False)   # No WRITE command exists in current RP2040 firmware.
-        self.verify.setEnabled(False)  # Enabled after a completed READ; compares against a user-selected reference image.
+        self.write.setEnabled(False)
+        self.write.setToolTip("Disabled: firmware write protocol is not implemented.")
         self.stop.setEnabled(False)
-        for b in (self.scan, self.read, self.write, self.verify, self.stop):
-            b.setObjectName("serviceButton")
-            b.setMinimumHeight(30)
-            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            btn.addWidget(b, 1)
-        layout.addLayout(btn)
+        for button in (self.scan, self.read, self.write, self.stop):
+            button.setObjectName("serviceButton")
+            button.setMinimumHeight(32)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            actions.addWidget(button)
+        layout.addLayout(actions)
 
         self.scan.clicked.connect(self.scanGPT)
         self.read.clicked.connect(self.readPartition)
         self.write.clicked.connect(self.writePartition)
-        self.verify.clicked.connect(self.verifyPartition)
         self.stop.clicked.connect(self.stopRead)
 
     @staticmethod
@@ -78,136 +89,199 @@ class UserAreaTab(QWidget):
         n = name.lower().strip()
         if not n:
             return "UNKNOWN"
+        if n == "super" or n.startswith(("system", "vendor", "product", "odm", "system_ext")):
+            return "ANDROID"
         if any(x in n for x in ("userdata", "user-data", "data")):
-            return "SKIP"
-        if any(x in n for x in ("system", "vendor", "product", "odm", "system_ext")):
-            return "FW INFO"
-        if any(x in n for x in ("security", "protect", "seccfg", "secro")):
-            return "SECURITY"
-        if any(x in n for x in ("imei", "nvram", "nvdata", "nvcfg", "persist", "modem", "efs", "fsg", "metadata")):
+            return "USERDATA"
+        if any(x in n for x in ("imei", "nvram", "nvdata", "nvcfg", "persist", "modem", "efs", "fsg")):
             return "SERVICE"
-        return "AVAILABLE"
+        return "PARTITION"
 
     def scanGPT(self):
         if self.gpt_busy or self.reading:
             return
         self.gpt_busy = True
+        self.buildprop_busy = True
+        self.buildprop_found = False
+        self._buildprop_data = []
         self.scan.setEnabled(False)
         self.read.setEnabled(False)
         self.stop.setEnabled(False)
         self.partitions.clear()
         self.table.setRowCount(0)
-        self.console.log("SCAN GPT REQUEST")
-        self.buildprop_busy = True
-        self.buildprop_found = False
-        self.buildprop_status.setText("Scanning GPT and searching build.prop...")
-        self.buildprop_text.clear()
+        self.status.setText("Reading GPT and Android system information...")
         try:
             self.emmc.gpt()
             self.gpt_timeout.start(120000)
         except Exception as e:
             self.gpt_timeout.stop()
-            self.console.log(f"GPT ERROR: {e}")
             self.gpt_busy = False
             self.buildprop_busy = False
-            self.buildprop_status.setText("Scan failed to start")
+            self.status.setText("GPT request failed")
             self.scan.setEnabled(True)
+            self.console.log(f"GPT ERROR: {e}")
+
+    def _add_partition(self, name, start, sectors, ptype="GPT", status="READY", logical=False):
+        if not name or sectors <= 0:
+            return
+        key = (name, int(start), int(sectors), bool(logical))
+        if any((p["name"], p["start"], p["sectors"], p["logical"]) == key for p in self.partitions):
+            return
+        item = {
+            "name": name, "start": int(start), "sectors": int(sectors),
+            "status": status, "type": ptype, "logical": bool(logical)
+        }
+        self.partitions.append(item)
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        size = int(sectors) * 512
+        if size >= 1024**4:
+            size_text = f"{size / 1024**4:.2f} TB"
+        elif size >= 1024**3:
+            size_text = f"{size / 1024**3:.2f} GB"
+        elif size >= 1024**2:
+            size_text = f"{size / 1024**2:.2f} MB"
+        else:
+            size_text = f"{size / 1024:.2f} KB"
+        values = (name, str(start), str(sectors), size_text, ptype, status)
+        for col, value in enumerate(values):
+            self.table.setItem(row, col, QTableWidgetItem(value))
+
+    @staticmethod
+    def _prop(data, *keys):
+        props = {}
+        for line in data.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            props[key.strip()] = value.strip()
+        for key in keys:
+            if props.get(key):
+                return props[key]
+        return ""
+
+    def _log_buildprop_summary(self):
+        data = "".join(self._buildprop_data)
+        if not data:
+            return
+        brand = self._prop(data, "ro.product.brand", "ro.product.system.brand")
+        model = self._prop(data, "ro.product.model", "ro.product.system.model")
+        name = self._prop(data, "ro.product.name", "ro.product.system.name")
+        product = self._prop(data, "ro.product.device", "ro.product.product.name", "ro.product.name")
+        sdk = self._prop(data, "ro.build.version.sdk")
+        codename = self._prop(data, "ro.build.version.codename", "ro.build.version.release_or_codename")
+        incremental = self._prop(data, "ro.build.version.incremental")
+        build_id = self._prop(data, "ro.build.id", "ro.system.build.id")
+        android = self._prop(data, "ro.build.version.release")
+        miui = self._prop(data, "ro.miui.ui.version.name", "ro.miui.ui.version.code")
+        patch = self._prop(data, "ro.build.version.security_patch", "ro.vendor.build.security_patch")
+        timezone = self._prop(data, "persist.sys.timezone", "ro.timezone")
+        platform = self._prop(data, "ro.board.platform", "ro.hardware")
+        abi = self._prop(data, "ro.product.cpu.abi", "ro.product.cpu.abilist")
+        build_date = self._prop(data, "ro.build.date", "ro.system.build.date")
+        fingerprint = self._prop(data, "ro.build.fingerprint", "ro.system.build.fingerprint")
+        imei = self._prop(data, "persist.radio.imei", "ro.ril.oem.imei", "ro.boot.imei")
+        mac = self._prop(data, "ro.boot.wifi_mac_address", "wifi.interface.mac", "persist.sys.wifi.macaddr")
+
+        self.console.log("Reading system info ...")
+        fields = [
+            ("Brand", brand), ("Model", model), ("Name", name), ("Product", product),
+            ("Sdk ver", sdk), ("Code name", codename), ("Incremental", incremental),
+            ("Build id", build_id), ("Android ver", android), ("Miui ver", miui),
+            ("Security patch", patch), ("Timezone", timezone), ("Platform", platform),
+            ("Cpu Abi", abi), ("Build Date", build_date), ("Fingerprint", fingerprint),
+            ("IMEI", imei), ("MAC", mac),
+        ]
+        for label, value in fields:
+            if value:
+                self.console.log(f"{label}: {value}")
+
+        if self.partitions:
+            total = sum(p["sectors"] for p in self.partitions if not p["logical"])
+            if total:
+                self.console.log(f"Internal storage : {total * 512 / 1024**3:.2f} GB")
 
     def handle_serial_data(self, obj):
         typ = obj.get("type")
         if typ == "emmc.buildprop.begin":
             self.buildprop_busy = True
-            self.buildprop_found = False
-            partition = str(obj.get("partition", ""))
-            self.buildprop_status.setText(f"Reading build.prop from {partition}...")
-            self.buildprop_text.clear()
-            self.console.log(f"BUILD.PROP SEARCH: {partition}")
+            self._buildprop_data = []
+            self.status.setText(f"Reading system info from {obj.get('partition', 'Android')}...")
             return
+
         if typ == "emmc.buildprop.chunk":
-            self.buildprop_text.moveCursor(self.buildprop_text.textCursor().MoveOperation.End)
-            self.buildprop_text.insertPlainText(str(obj.get("data", "")))
+            self._buildprop_data.append(str(obj.get("data", "")))
             return
+
         if typ == "emmc.buildprop.result":
-            ok = bool(obj.get("ok", False))
-            partition = str(obj.get("partition", ""))
-            if ok:
+            if obj.get("ok"):
                 self.buildprop_found = True
-                self.buildprop_busy = False
-                self.buildprop_status.setText(f"Found: {partition}/build.prop")
-                self.console.log(f"BUILD.PROP OK: {partition}/build.prop ({obj.get('bytes', 0)} bytes)")
-            else:
-                self.console.log(f"BUILD.PROP MISS: {partition}: {obj.get('msg', 'not found')}")
+                self.status.setText(f"System info: {obj.get('partition', 'build.prop')}")
             return
+
         if typ == "emmc.buildprop.end":
             self.buildprop_busy = False
+            self._log_buildprop_summary()
             self.gpt_timeout.stop()
+            self.gpt_busy = False
             self.scan.setEnabled(True)
             self.read.setEnabled(bool(self.partitions))
-            if not self.buildprop_found:
-                self.buildprop_status.setText("build.prop not found / unsupported filesystem")
-                self.console.log("BUILD.PROP: " + str(obj.get("msg", "no supported build.prop found during SCAN GPT")) )
+            if self.buildprop_found:
+                self.status.setText("GPT + system information ready")
+            else:
+                self.status.setText("GPT ready; build.prop not found")
             return
+
+        if typ == "emmc.lp.partition":
+            self._add_partition(
+                str(obj.get("name", "")),
+                int(obj.get("start_lba", 0)),
+                int(obj.get("sectors", 0)),
+                "LOGICAL",
+                "READ-ONLY MAP",
+                True,
+            )
+            return
+
         if typ == "emmc.gpt.begin":
             self.partitions.clear()
             self.table.setRowCount(0)
-            self.console.log(f"GPT HEADER OK - {obj.get('entries', 0)} entries")
+            self.status.setText("Reading GPT...")
             return
+
         if typ == "emmc.gpt.partition":
             name = str(obj.get("name", "")).strip()
-            start = int(obj.get("start_lba", 0))
-            sectors = int(obj.get("sectors", 0))
-            status = self.classify(name)
-            self.partitions.append({"name": name, "start": start, "sectors": sectors, "status": status})
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            size = sectors * 512
-            if size >= 1024**3:
-                size_text = f"{size / 1024**3:.2f} GB"
-            elif size >= 1024**2:
-                size_text = f"{size / 1024**2:.2f} MB"
-            elif size >= 1024:
-                size_text = f"{size / 1024:.2f} KB"
-            else:
-                size_text = f"{size} B"
-            for c, v in enumerate((name, str(start), str(sectors), size_text, status)):
-                self.table.setItem(row, c, QTableWidgetItem(v))
+            self._add_partition(
+                name, int(obj.get("start_lba", 0)), int(obj.get("sectors", 0)),
+                "GPT", self.classify(name)
+            )
             return
+
         if typ == "emmc.gpt.end":
             if not self.buildprop_busy:
+                self.gpt_busy = False
                 self.gpt_timeout.stop()
-            self.gpt_busy = False
-            count = int(obj.get("partitions", len(self.partitions)))
-            if count > 0 and len(self.partitions) > 0:
-                self.console.log(
-                    f"GPT READY - {len(self.partitions)} real partition(s), "
-                    f"entries LBA={obj.get('entries_lba', '-')}"
-                )
-                # Firmware sends GPT END before the synchronous build.prop scan.
-                # Keep READ disabled until build.prop END so a partition dump cannot
-                # be queued while the firmware is still inside app_handle_gpt().
-                self.read.setEnabled(not self.buildprop_busy)
-            else:
-                self.console.log("GPT ERROR: valid GPT header found, but no valid partition entries were found")
-                self.read.setEnabled(False)
-            self.verify.setEnabled(False)
+                self.scan.setEnabled(True)
+                self.read.setEnabled(bool(self.partitions))
             return
+
         if typ == "emmc.gpt.result":
-            self.gpt_timeout.stop()
             if not obj.get("ok", False):
                 self.gpt_busy = False
                 self.buildprop_busy = False
                 self.scan.setEnabled(True)
                 self.read.setEnabled(False)
-                self.buildprop_status.setText("GPT failed")
+                self.status.setText("GPT failed")
                 self.console.log("GPT ERROR: " + str(obj.get("msg", "unknown error")))
             return
+
         if typ == "emmc.dump.status":
-            state = obj.get("state", "")
+            state = str(obj.get("state", ""))
             done = int(obj.get("done_blocks", 0))
             total = max(1, int(obj.get("total_blocks", 1)))
             self.dump_received = done * 512
             self.dump_expected = self.dump_total * 512
-            self.console.log(f"READ {state}: {done}/{total} sectors - {obj.get('detail', '')}")
             if state == "complete":
                 self.finish_read(True)
             elif state == "error":
@@ -220,8 +294,8 @@ class UserAreaTab(QWidget):
         self.buildprop_busy = False
         self.scan.setEnabled(True)
         self.read.setEnabled(bool(self.partitions))
-        self.buildprop_status.setText("Scan GPT timeout")
-        self.console.log("SCAN GPT TIMEOUT (120s): firmware tidak menyelesaikan GPT/build.prop scan")
+        self.status.setText("GPT/system scan timeout")
+        self.console.log("SCAN GPT TIMEOUT (120s)")
         try:
             self.emmc.stop_tests()
         except Exception:
@@ -249,39 +323,65 @@ class UserAreaTab(QWidget):
         row = self.table.currentRow()
         if row < 0 or row >= len(self.partitions):
             return None
-        p = self.partitions[row]
-        return p["name"], p["start"], p["sectors"], p["status"]
+        return self.partitions[row]
+
+    def context_menu(self, pos):
+        p = self.selectedPartition()
+        if not p:
+            return
+        menu = QMenu(self)
+        read = menu.addAction("Read / Backup")
+        verify = menu.addAction("Verify")
+        menu.addSeparator()
+        write = menu.addAction("Write")
+        write.setEnabled(False)
+        write.setToolTip("Write protocol is not implemented")
+        action = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if action == read:
+            self.readPartition()
+        elif action == verify:
+            self.verifyPartition()
+        elif action == write:
+            self.writePartition()
 
     def readPartition(self):
         p = self.selectedPartition()
         if not p:
             self.console.log("READ: select a partition first")
             return
-        name, start, count, status = p
-        if status == "SKIP":
-            self.console.log(f"READ BLOCKED: {name} is SKIP by policy")
+        if p["logical"]:
+            self.console.log(f"READ disabled for logical partition {p['name']}: mapped multi-extent dump protocol is not active")
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Save partition image", f"{name}.bin", "Binary (*.bin);;All Files (*)")
+        if p["sectors"] <= 0 or p["start"] < 0:
+            return
+
+        default = os.path.join("", f"{p['name']}.bin")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save partition image", default,
+            "Binary image (*.bin *.img);;All Files (*)"
+        )
         if not path:
             return
+
         try:
             self.dump_file = open(path, "w+b")
-            self.dump_file.truncate(count * 512)
+            self.dump_file.truncate(p["sectors"] * 512)
         except OSError as e:
-            self.console.log(f"READ FILE ERROR: {e}")
             self.dump_file = None
+            self.console.log(f"READ FILE ERROR: {e}")
             return
-        self.dump_expected = count * 512
+
+        self.dump_expected = p["sectors"] * 512
         self.dump_received = 0
-        self.dump_start_lba = start
-        self.dump_total = count
+        self.dump_start_lba = p["start"]
+        self.dump_total = p["sectors"]
         self.reading = True
         self.read.setEnabled(False)
         self.scan.setEnabled(False)
         self.stop.setEnabled(True)
-        self.console.log(f"READ START: {name} LBA={start} sectors={count}")
+        self.console.log(f"Reading {p['name']} ...")
         try:
-            self.emmc.dump_start(start, count, 512, True, 3)
+            self.emmc.dump_start(p["start"], p["sectors"], 512, True, 3)
         except Exception as e:
             self.console.log(f"READ START ERROR: {e}")
             self.finish_read(False)
@@ -291,70 +391,67 @@ class UserAreaTab(QWidget):
             return
         try:
             self.emmc.dump_stop()
-        except Exception as e:
-            self.console.log(f"READ STOP ERROR: {e}")
+        except Exception:
+            pass
         self.finish_read(False, stopped=True)
 
     def finish_read(self, success, stopped=False):
         if not self.reading and not self.dump_file:
             return
-        path = None
+        path = getattr(self.dump_file, "name", None) if self.dump_file else None
         if self.dump_file:
-            path = getattr(self.dump_file, "name", None)
             try:
                 self.dump_file.flush()
                 self.dump_file.close()
             except Exception:
                 pass
         self.dump_file = None
-        was_reading = self.reading
         self.reading = False
         self.stop.setEnabled(False)
         self.scan.setEnabled(True)
         self.read.setEnabled(bool(self.partitions))
         if success and self.dump_received >= self.dump_expected:
             self._last_read_path = path
-            self.verify.setEnabled(True)
             self.console.log(f"READ COMPLETE: {path}")
         elif stopped:
             self.console.log(f"READ STOPPED: partial file kept: {path}")
-        elif was_reading:
-            self.console.log(f"READ FAILED: {path or 'no file'}")
+        elif path:
+            self.console.log(f"READ FAILED: {path}")
 
     def writePartition(self):
-        self.console.log("WRITE disabled: firmware write protocol is not implemented yet; no dummy write will be performed")
+        self.console.log("WRITE disabled: no eMMC write protocol is active")
 
     def verifyPartition(self):
         p = self.selectedPartition()
-        if not p:
-            self.console.log("VERIFY: select a partition first")
-            return
-        name, start, count, status = p
-        if status == "SKIP":
-            self.console.log(f"VERIFY BLOCKED: {name} is SKIP by policy")
-            return
-        if not getattr(self, "_last_read_path", None):
-            self.console.log("VERIFY ERROR: no completed READ image is available")
+        if not p or p["logical"]:
+            self.console.log("VERIFY: select a physical GPT partition")
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select reference image", "", "Binary (*.bin *.img);;All Files (*)"
+            self, "Select reference image", "",
+            "Binary image (*.bin *.img);;All Files (*)"
         )
         if not path:
             return
-        expected_size = count * 512
+        expected = p["sectors"] * 512
         try:
             import os
-            if os.path.getsize(path) != expected_size:
-                self.console.log(f"VERIFY SIZE ERROR: expected {expected_size} bytes")
+            if os.path.getsize(path) != expected:
+                self.console.log(f"VERIFY SIZE ERROR: expected {expected} bytes")
                 return
             with open(path, "rb") as f:
                 reference = f.read()
+            if not self._last_read_path:
+                self.console.log("VERIFY ERROR: no completed READ image")
+                return
             with open(self._last_read_path, "rb") as f:
                 captured = f.read()
             if captured == reference:
-                self.console.log(f"VERIFY OK: {name} ({expected_size} bytes)")
+                self.console.log(f"VERIFY OK: {p['name']}")
                 return
-            mismatch = next((i for i, (a, b) in enumerate(zip(captured, reference)) if a != b), min(len(captured), len(reference)))
-            self.console.log(f"VERIFY FAILED: {name} first mismatch at byte 0x{mismatch:X}")
+            mismatch = next(
+                (i for i, (a, b) in enumerate(zip(captured, reference)) if a != b),
+                min(len(captured), len(reference))
+            )
+            self.console.log(f"VERIFY FAILED: {p['name']} first mismatch at byte 0x{mismatch:X}")
         except OSError as e:
             self.console.log(f"VERIFY FILE ERROR: {e}")
