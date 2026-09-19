@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(splitter)
 
         self._wire_beta_functions_to_gui_tabs()
-        self.refresh_ports()
+        self.refresh_ports(auto_connect=True)
         self.console.log("Pico eMMC Tool initialized successfully.")
 
     def _wire_beta_functions_to_gui_tabs(self):
@@ -252,7 +252,7 @@ class MainWindow(QMainWindow):
         # protocol. Do not report a false success.
         self.console.log("WRITE disabled: pico-emmc-beta has no active safe eMMC write protocol.")
 
-    def refresh_ports(self):
+    def refresh_ports(self, auto_connect=True):
         self.combo_port.clear()
         try:
             import serial.tools.list_ports
@@ -266,6 +266,10 @@ class MainWindow(QMainWindow):
                 index = self.combo_port.findData(pico.device)
                 if index >= 0:
                     self.combo_port.setCurrentIndex(index)
+                self.console.log(f"Pico USB automatically selected: {pico.device}")
+                if auto_connect and self.serial and not self.serial.is_connected():
+                    self.console.log(f"Pico USB automatically connecting: {pico.device}")
+                    self.toggle_connect()
         except Exception as e:
             self.console.log(f"Serial port scan error: {e}")
 
