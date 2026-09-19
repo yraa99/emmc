@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QAbstractItemView, QFileDialog, QMenu, QSizePolicy, QHeaderView
 )
 from PyQt6.QtCore import QTimer, Qt
+import os
 
 
 class UserAreaTab(QWidget):
