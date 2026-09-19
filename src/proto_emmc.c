@@ -619,7 +619,7 @@ static void r2_extract_payload_128(const uint8_t *r2_136, uint8_t out16[16]) {
 }
 
 static void snapshot_levels(void);
-static bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len);
+bool emmc_prepare_card_for_data(uint16_t *out_rca, bool *out_hc, char *msg, size_t msg_len);
 static bool emmc_resync_transfer(uint16_t rca, bool hc_addressing);
 
 static bool emmc_try_read_ids(emmc_id_data_t *out) {
