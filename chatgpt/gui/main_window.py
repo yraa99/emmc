@@ -136,13 +136,11 @@ class MainWindow(QMainWindow):
         action_layout.setSpacing(8)
 
         self.btn_main_identify = QPushButton("IDENTIFY")
-        self.btn_main_health = QPushButton("eMMC HEALTH")
         self.btn_main_gpt = QPushButton("READ GPT")
         self.btn_main_identify.setMinimumWidth(150)
-        self.btn_main_health.setMinimumWidth(150)
         self.btn_main_gpt.setMinimumWidth(130)
 
-        for button in (self.btn_main_identify, self.btn_main_health, self.btn_main_gpt):
+        for button in (self.btn_main_identify, self.btn_main_gpt):
             button.setObjectName("mainAction")
             button.setMinimumHeight(34)
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -150,7 +148,6 @@ class MainWindow(QMainWindow):
 
         action_layout.addStretch()
         self.btn_main_identify.clicked.connect(self.main_identify)
-        self.btn_main_health.clicked.connect(self.main_health)
         self.btn_main_gpt.clicked.connect(self.main_gpt)
         main_layout.addWidget(action_group)
 
