@@ -35,7 +35,9 @@ class Protocol:
         self.send_command(f"PIN_TEST CLK {level}")
 
     def pin_test_cmd_dat0(self):
-        self.send_command("PIN_TEST CMD_DAT0")
+        # Firmware exposes CHECK_PINS for the combined CMD/DAT0 idle check;
+        # PIN_TEST CMD_DAT0 is not a firmware command.
+        self.send_command("CHECK_PINS")
 
     def pin_test_cmd(self, level="HIGH"):
         level = str(level).upper()
