@@ -1,7 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-    QPushButton, QAbstractItemView, QFileDialog, QMenu, QSizePolicy, QHeaderView,
-    QComboBox, QLineEdit
+    QPushButton, QAbstractItemView, QFileDialog, QMenu, QSizePolicy, QHeaderView
 )
 from PyQt6.QtCore import QTimer, Qt
 import os
@@ -65,30 +64,6 @@ class UserAreaTab(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table, 1)
 
-        manual = QHBoxLayout()
-        manual.setSpacing(6)
-
-        manual.addWidget(QLabel("TARGET"))
-        self.target_box = QComboBox()
-        self.target_box.addItems(["USER AREA", "BOOT1", "BOOT2", "EXT_CSD", "RPMB"])
-        self.target_box.setCurrentText("USER AREA")
-        manual.addWidget(self.target_box)
-
-        manual.addWidget(QLabel("FILE TYPE"))
-        self.file_type_box = QComboBox()
-        self.file_type_box.addItems(["BIN", "IMG"])
-        manual.addWidget(self.file_type_box, 1)
-
-        self.file_path = QLineEdit()
-        self.file_path.setReadOnly(True)
-        self.file_path.setPlaceholderText("Backup destination / source image")
-        manual.addWidget(self.file_path, 3)
-
-        self.select_file = QPushButton("SELECT FILE")
-        self.select_file.setObjectName("serviceButton")
-        manual.addWidget(self.select_file)
-        layout.addLayout(manual)
-
         actions = QHBoxLayout()
         actions.setSpacing(8)
         self.scan = QPushButton("READ GPT")
@@ -96,7 +71,7 @@ class UserAreaTab(QWidget):
         self.write = QPushButton("WRITE")
         self.stop = QPushButton("STOP")
         self.write.setEnabled(False)
-        self.write.setToolTip("Disabled: no safe eMMC write protocol is exposed by the firmware.")
+        self.write.setToolTip("Disabled: firmware write protocol is not implemented.")
         self.stop.setEnabled(False)
         for button in (self.scan, self.read, self.write, self.stop):
             button.setObjectName("serviceButton")
@@ -109,29 +84,6 @@ class UserAreaTab(QWidget):
         self.read.clicked.connect(self.readPartition)
         self.write.clicked.connect(self.writePartition)
         self.stop.clicked.connect(self.stopRead)
-        self.select_file.clicked.connect(self.select_manual_file)
-        self.target_box.currentTextChanged.connect(self.target_changed)
-
-    def target_changed(self, target):
-        active = target == "USER AREA"
-        self.read.setEnabled(active and bool(self.partitions) and not self.reading)
-        if target != "USER AREA":
-            self.status.setText(f"{target}: selection is available, but its read/write protocol is not active")
-
-    def select_manual_file(self):
-        target = self.target_box.currentText()
-        if target == "USER AREA":
-            path, _ = QFileDialog.getSaveFileName(
-                self, "Select USER AREA backup", "",
-                "Binary image (*.bin *.img);;All Files (*)"
-            )
-        else:
-            path, _ = QFileDialog.getOpenFileName(
-                self, f"Select {target} image", "",
-                "Binary image (*.bin *.img);;All Files (*)"
-            )
-        if path:
-            self.file_path.setText(path)
 
     @staticmethod
     def classify(name):
@@ -287,6 +239,14 @@ class UserAreaTab(QWidget):
             return
 
         if typ == "emmc.lp.partition":
+            self._add_partition(
+                str(obj.get("name", "")),
+                int(obj.get("start_lba", 0)),
+                int(obj.get("sectors", 0)),
+                "LOGICAL",
+                "READ-ONLY MAP",
+                True,
+            )
             return
 
         if typ == "emmc.gpt.begin":
@@ -297,11 +257,10 @@ class UserAreaTab(QWidget):
 
         if typ == "emmc.gpt.partition":
             name = str(obj.get("name", "")).strip()
-            if self.classify(name) == "USERDATA":
-                self._add_partition(
-                    name, int(obj.get("start_lba", 0)), int(obj.get("sectors", 0)),
-                    "USER AREA", "READY"
-                )
+            self._add_partition(
+                name, int(obj.get("start_lba", 0)), int(obj.get("sectors", 0)),
+                "GPT", self.classify(name)
+            )
             return
 
         if typ == "emmc.gpt.end":
