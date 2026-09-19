@@ -196,10 +196,7 @@ class MainWindow(QMainWindow):
         self.special_combo = QComboBox()
         self.special_combo.addItems(self.special.task_names())
         self.special_combo.setMinimumWidth(230)
-        self.special_execute = QPushButton("OPEN")
-        self.special_execute.setMinimumWidth(60)
         special_layout.addWidget(self.special_combo, 1)
-        special_layout.addWidget(self.special_execute)
         footer.addWidget(special_widget, 1)
 
         self.theme_button = QPushButton("Dark / Light")
@@ -209,7 +206,7 @@ class MainWindow(QMainWindow):
         root.addLayout(footer)
 
         self.btn_cancel.clicked.connect(self.cancel_operation)
-        self.special_execute.clicked.connect(self.open_special_task)
+        self.special_combo.currentIndexChanged.connect(self.on_special_selected)
         self.theme_button.clicked.connect(self.toggle_theme)
 
         self.apply_style()
@@ -248,7 +245,10 @@ class MainWindow(QMainWindow):
         identify_bar.setSpacing(4)
         self.btn_main_identify = self._button("IDENTIFY", 110)
         self.btn_main_identify.clicked.connect(self.main_identify)
+        self.btn_boot_device = self._button("BOOT DEVICE", 125)
+        self.btn_boot_device.clicked.connect(self.main_boot_device)
         identify_bar.addWidget(self.btn_main_identify)
+        identify_bar.addWidget(self.btn_boot_device)
         identify_bar.addWidget(QLabel("eMMC Programming / Dump File"))
         identify_bar.addStretch(1)
         right_layout.addLayout(identify_bar)
@@ -397,8 +397,7 @@ class MainWindow(QMainWindow):
         self.btn_boot2 = self.program_rows["boot2"]["read"]
         self.btn_extcsd = self.program_rows["extcsd"]["read"]
 
-        self.userarea.scan.clicked.connect(lambda: self.start_operation(120000, "READ GPT"))
-        self.userarea.read.clicked.connect(lambda: self.start_operation(3600000, "READ / BACKUP"))
+        self.userarea.read.clicked.connect(lambda: self.start_operation(3600000, "BACKUP PARTITION"))
         self.userarea.stop.clicked.connect(self.cancel_operation)
 
         return page
@@ -720,13 +719,11 @@ class MainWindow(QMainWindow):
             QDateTime.currentDateTime().toString("dd/MM/yyyy  HH:mm:ss")
         )
 
-    def open_special_task(self):
-        index = self.special_combo.currentIndex()
+    def on_special_selected(self, index):
+        if index < 0:
+            return
         self.show_service(self.special)
-        try:
-            self.special.select_task(index)
-        except Exception:
-            pass
+        self.special.select_task(index, execute=True)
 
     def refresh_device(self, auto_connect=True):
         self.port_combo.clear()
@@ -904,17 +901,19 @@ class MainWindow(QMainWindow):
             self.finish_operation(False, "IDENTIFY ERROR")
             self.console.log(f"IDENTIFY ERROR: {e}")
 
-    def main_gpt(self):
+    def main_boot_device(self):
         if not self.serial.is_connected():
-            self.console.log("READ GPT: RP2040 is not connected")
+            self.console.log("BOOT DEVICE: RP2040 is not connected")
             return
         try:
-            self.userarea.show_service_controls()
-            self.start_operation(120000, "READ GPT")
+            self.start_operation(120000, "BOOT DEVICE")
             self.userarea.scanGPT()
         except Exception as e:
-            self.finish_operation(False, "GPT ERROR")
-            self.console.log(f"READ GPT ERROR: {e}")
+            self.finish_operation(False, "BOOT DEVICE ERROR")
+            self.console.log(f"BOOT DEVICE ERROR: {e}")
+
+    def main_gpt(self):
+        self.main_boot_device()
 
     def main_health(self):
         self.show_service(self.special)
