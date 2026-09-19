@@ -429,8 +429,8 @@ static bool ext4_extent_lookup(const buildprop_candidate_t *candidate, bool hc,
         uint32_t first = ext4_le32(best);
         uint16_t len = ext4_le16(&best[4]) & 0x7FFFu;
         if (logical_block >= first + len) return false;
-        *physical_block = (uint64_t)ext4_le32(&best[4]) |
-                           ((uint64_t)ext4_le16(&best[8]) << 32) +
+        *physical_block = ((uint64_t)ext4_le32(&best[4]) |
+                            ((uint64_t)ext4_le16(&best[8]) << 32)) +
                            (logical_block - first);
         return true;
     }
