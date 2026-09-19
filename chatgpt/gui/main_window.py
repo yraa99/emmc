@@ -5,6 +5,30 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, QDateTime
 
+
+class FileDropEdit(QLineEdit):
+    """Read-only file field that also accepts UFI-style drag & drop."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if urls:
+            path = urls[0].toLocalFile()
+            if path:
+                self.setText(path)
+                event.acceptProposedAction()
+        else:
+            event.ignore()
+
+
 from gui.console import Console
 from gui.identify import IdentifyTab
 from gui.boot_extcsd import BootExtCSDTab
@@ -250,7 +274,7 @@ class MainWindow(QMainWindow):
         ]
         for row, (label, key, filt) in enumerate(specs, start=1):
             grid.addWidget(QLabel(label), row, 0)
-            edit = QLineEdit()
+            edit = FileDropEdit()
             edit.setReadOnly(True)
             edit.setPlaceholderText("Select dump / image")
             select = QPushButton("...")
