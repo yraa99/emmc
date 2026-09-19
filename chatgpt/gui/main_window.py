@@ -606,16 +606,20 @@ class MainWindow(QMainWindow):
             QGroupBox { border:1px solid #aeb5bb; border-radius:3px; margin-top:7px; padding-top:5px; font-weight:bold; }
             QGroupBox::title { subcontrol-origin:margin; left:7px; padding:0 4px; }
             QPushButton { background:#e5e8eb; border:1px solid #a5adb4; border-radius:2px; padding:4px 8px; min-height:26px; }
-            QPushButton:hover { background:#d9dde1; }
+            QPushButton:hover { background:#d9dde1; border-color:#5b8def; }
+            QPushButton#serviceButton { background:#e8edf7; border-color:#8da8d8; color:#253b62; font-weight:600; }
+            QPushButton#serviceButton:hover { background:#d9e4f7; }
+            QComboBox:hover, QLineEdit:hover { border-color:#5b8def; }
+            QProgressBar::chunk { background:#4f8cff; }
             QPushButton:pressed { background:#cbd0d5; }
             QPushButton:disabled { color:#8a9095; background:#e8eaec; }
             QComboBox { background:#ffffff; border:1px solid #a5adb4; border-radius:2px; padding:4px 7px; min-height:25px; }
             QTabWidget::pane { border:1px solid #aeb5bb; background:#f7f8f9; }
             QTabBar::tab { background:#dfe3e6; border:1px solid #aeb5bb; padding:6px 14px; color:#394047; }
-            QTabBar::tab:selected { background:#ffffff; color:#111417; }
+            QTabBar::tab:selected { background:#ffffff; color:#2457a6; font-weight:bold; }
+            QTabBar::tab:hover { background:#eef4ff; color:#2457a6; }
             QSplitter::handle { background:#aeb5bb; }
             QProgressBar { border:1px solid #aeb5bb; background:#ffffff; text-align:center; min-height:18px; }
-            QProgressBar::chunk { background:#707980; }
             QTableWidget { background:#ffffff; alternate-background-color:#f2f4f5; gridline-color:#c5cbd0; selection-background-color:#d7dde2; }
             QHeaderView::section { background:#e1e5e8; color:#252a2e; padding:5px; border:1px solid #c5cbd0; font-weight:bold; }
             QLabel#status_disconnected { color:#b23b3b; font-weight:bold; }
@@ -629,17 +633,21 @@ class MainWindow(QMainWindow):
             QGroupBox { border:1px solid #30373d; border-radius:3px; margin-top:7px; padding-top:5px; font-weight:bold; color:#aeb8c0; }
             QGroupBox::title { subcontrol-origin:margin; left:7px; padding:0 4px; color:#9da8b0; }
             QPushButton { background:#20262b; border:1px solid #3b444b; border-radius:2px; padding:4px 8px; color:#dce2e6; min-height:26px; }
-            QPushButton:hover { background:#2b3339; border-color:#68757e; }
+            QPushButton:hover { background:#2b3339; border-color:#4fa3ff; }
+            QPushButton#serviceButton { background:#202d3a; border-color:#35658b; color:#bfe5ff; font-weight:600; }
+            QPushButton#serviceButton:hover { background:#263d50; border-color:#4fa3ff; }
+            QComboBox:hover, QLineEdit:hover { border-color:#4fa3ff; }
             QPushButton:pressed { background:#171c20; }
             QPushButton:disabled { color:#596168; background:#171b1e; border-color:#292e32; }
             QComboBox { background:#181d21; border:1px solid #3a434a; border-radius:2px; padding:4px 7px; min-height:25px; }
             QTabWidget::pane { border:1px solid #30373d; background:#151a1e; }
             QTabBar::tab { background:#1b2024; border:1px solid #30373d; padding:6px 14px; color:#8f9aa3; }
-            QTabBar::tab:selected { background:#30383f; color:#ffffff; }
+            QTabBar::tab:selected { background:#263f55; color:#7fd0ff; font-weight:bold; }
+            QTabBar::tab:hover { background:#222d36; color:#7fd0ff; }
             QSplitter::handle { background:#30383e; }
             QSplitter::handle:hover { background:#59656e; }
             QProgressBar { border:1px solid #30373d; border-radius:2px; background:#181d21; text-align:center; min-height:18px; }
-            QProgressBar::chunk { background:#46535d; }
+            QProgressBar::chunk { background:#287fd3; }
             QTableWidget { background:#151a1e; alternate-background-color:#1b2024; gridline-color:#30373d; selection-background-color:#303c45; }
             QHeaderView::section { background:#20272c; color:#cdd5da; padding:5px; border:1px solid #30373d; font-weight:bold; }
             QLabel#status_disconnected { color:#d66a6a; font-weight:bold; }
