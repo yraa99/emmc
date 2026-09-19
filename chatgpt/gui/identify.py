@@ -241,22 +241,11 @@ class IdentifyTab(QWidget):
         except Exception:
             return ""
 
-    def health_check_clicked(self):
-        if self.busy:
-            return
-        self.health_check_busy = True
-        try:
-            self.emmc.layout()
-        except Exception as e:
-            self.console.log(f"HEALTH CHECK ERROR: {e}")
-            self.health_check_busy = False
-    
     def identify(self):
         if self.busy:
             return
         self.busy = True
         self.button.setEnabled(False)
-        self.health_check.setEnabled(False)
         self.cancel.setEnabled(True)
         try:
             self.emmc.identify()
@@ -282,5 +271,4 @@ class IdentifyTab(QWidget):
         self.timeout.stop()
         self.busy = False
         self.button.setEnabled(True)
-        self.health_check.setEnabled(True)
         self.cancel.setEnabled(False)
