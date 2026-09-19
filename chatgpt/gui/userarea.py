@@ -113,7 +113,7 @@ class UserAreaTab(QWidget):
         self.status.setText("Reading GPT and Android system information...")
         try:
             self.emmc.gpt()
-            self.gpt_timeout.start(120000)
+            self.gpt_timeout.start(300000)
         except Exception as e:
             self.gpt_timeout.stop()
             self.gpt_busy = False
@@ -300,7 +300,7 @@ class UserAreaTab(QWidget):
         self.scan.setEnabled(True)
         self.read.setEnabled(bool(self.partitions))
         self.status.setText("GPT/system scan timeout")
-        self.console.log("SCAN GPT TIMEOUT (120s)")
+        self.console.log("SCAN GPT TIMEOUT (300s)")
         try:
             self.emmc.stop_tests()
         except Exception:
